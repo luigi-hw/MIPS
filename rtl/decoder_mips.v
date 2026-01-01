@@ -1,4 +1,4 @@
-//////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 // Company: LC Desenvolvimentos
 // Engineer: Luigi C. Filho
 // 
@@ -15,23 +15,78 @@
 // Revision: 
 // Revision 0.01 - File Created
 // Revision 0.02 - Review of Instruction Decode
+// Revision 0.03 - Completing Instruction decoder first version
 // Additional Comments: 
 //
-//////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
 module decoder_mips (
 						opcode,
 						funct,
+						equalrsrt,
+						rsmaior,
+						rsmrt,
 						outsaida,
-						ctrol
+						ctrol,
+						rt,
+						slt_mux
 					);
 
 input	[5:0]	opcode;
-input	[6:0]	funct;
-output	[x:0]	ctrol;
-output	[x:0]	outsaida;
+input	[5:0]	funct; // MIPS standard: 6 bits
+input           equalrsrt;
+input           rsmaior;
+input           rsmrt; // rs < rt? or rs > rt?
+output	[7:0]	ctrol; // Adjust width based on concatenation
+output	[3:0]	outsaida;
+output reg [31:0] rt; // Direct output to register file/datapath
+output reg slt_mux; // Selects Decoder RT output for Writeback
 
-always (opcode)
+// Internal Control Signals
+reg jorf;
+reg ctrl;
+reg addorn;
+reg rori;
+reg instype;
+reg reoral;
+reg ref_w_ena;
+reg d_mem_wena;
+reg [3:0] outsaida_reg;
+
+assign ctrol = {jorf, ctrl, addorn, rori, instype, reoral, ref_w_ena, d_mem_wena};
+assign outsaida = outsaida_reg;
+
+// ALU Opcode Parameters (Matching alu.v)
+parameter ADD  = 4'd0;
+parameter SUB  = 4'd1;
+parameter AND  = 4'd2;
+parameter OR   = 4'd3;
+parameter XOR  = 4'd4;
+parameter L_SH = 4'd5;
+parameter R_SH = 4'd6;
+parameter NOR  = 4'd8;
+parameter COMP = 4'd11;
+
+// Instruction Decoding Parameters
+parameter ADDI = 3'b000;
+parameter ADDIU = 3'b001;
+parameter SLTI = 3'b010;
+parameter SLTIU = 3'b011;
+parameter ANDI = 3'b100;
+parameter ORI = 3'b101;
+parameter XORI = 3'b110;
+parameter LUI = 3'b111;
+
+parameter BEQ = 2'b00;
+parameter BNE = 2'b01;
+parameter BLEZ = 2'b10;
+parameter BGTZ = 2'b11;
+
+always @(opcode or funct or equalrsrt or rsmaior or rsmrt)
 begin
+	// Default assignments
+	rt = 32'd0;
+    slt_mux = 1'b0;
+	
 	if(opcode[5] == 1'b1)
 			begin
 				if (opcode[3] == 1'b1)
@@ -47,7 +102,7 @@ begin
 						rori = 1'b0;
 						// -------------
 						// ALU OP
-						outsaida = ADD;
+						outsaida_reg = ADD;
 						// -------------
 						// Destination Decision
 						instype = 1'b0;
@@ -75,7 +130,7 @@ begin
 						rori = 1'b0;
 						// -------------
 						// ALU OP
-						outsaida = ADD;
+						outsaida_reg = ADD;
 						// -------------
 						// Destination Decision
 						instype = 1'b1;
@@ -107,7 +162,7 @@ begin
 									rori = 1'b0;
 									// -------------
 									// ALU OP
-									outsaida = ADD;
+									outsaida_reg = ADD;
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -117,6 +172,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -133,7 +189,7 @@ begin
 									rori = 1'b0;
 									// -------------
 									// ALU OP
-									outsaida = ADD;
+									outsaida_reg = ADD;
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -143,6 +199,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -159,7 +216,7 @@ begin
 									rori = 1'b0;
 									// -------------
 									// ALU OP
-									outsaida = AND;
+									outsaida_reg = AND;
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -169,6 +226,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -185,7 +243,7 @@ begin
 									rori = 1'b0;
 									// -------------
 									// ALU OP
-									outsaida = OR;
+									outsaida_reg = OR;
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -195,6 +253,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -211,7 +270,7 @@ begin
 									rori = 1'b0;
 									// -------------
 									// ALU OP
-									outsaida = XOR;
+									outsaida_reg = XOR;
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -221,6 +280,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -237,7 +297,7 @@ begin
 									rori = 1'b0;
 									// -------------
 									// ALU OP
-									outsaida = add;
+									outsaida_reg = ADD;
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -247,6 +307,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -267,7 +328,7 @@ begin
 									rori = 1'b0;
 									// -------------
 									// ALU OP
-									outsaida = 0;
+									outsaida_reg = 0;
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -277,6 +338,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -299,7 +361,7 @@ begin
 									rori = 1'b0;
 									// -------------
 									// ALU OP
-									outsaida = 0;
+									outsaida_reg = 0;
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -309,6 +371,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -321,10 +384,10 @@ begin
 					case(opcode[1:0])
 						BEQ :	begin //pag 25
 									// Alu Decision
-									rori = 1'b0;
+									rori = 1'b1; // Use rt_data for comparison
 									// -------------
 									// ALU OP
-									outsaida = 0;
+									outsaida_reg = COMP; // Use COMP to set equal output
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -353,10 +416,10 @@ begin
 								end
 						BNE :	begin // pag 41
 									// Alu Decision
-									rori = 1'b0;
+									rori = 1'b1; // Use rt_data for comparison
 									// -------------
 									// ALU OP
-									outsaida = 0;
+									outsaida_reg = COMP; // Use COMP to set equal output
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -385,10 +448,10 @@ begin
 								end
 						BGTZ :	begin // pag 32
 									// Alu Decision
-									rori = 1'b0;
+									rori = 1'b1; // Use rt_data for comparison
 									// -------------
 									// ALU OP
-									outsaida = 0;
+									outsaida_reg = COMP; // Use COMP to set equal output
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -417,10 +480,10 @@ begin
 								end
 						BLEZ : 	begin // pag 34
 																// Alu Decision
-									rori = 1'b0;
+									rori = 1'b1; // Use rt_data for comparison
 									// -------------
 									// ALU OP
-									outsaida = 0;
+									outsaida_reg = COMP; // Use COMP to set equal output
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -454,25 +517,34 @@ begin
 					//SPECIAL
 					if (funct[5] == 1'b0)
 						begin
+						    // SHIFT INSTRUCTIONS (SLL, SRL)
+						    // funct[5:0]: SLL=000000, SRL=000010, SRA=000011
+						    if (funct[1:0] == 2'b00) // SLL
+						       outsaida_reg = L_SH;
+						    else if (funct[1:0] == 2'b10) // SRL
+						       outsaida_reg = R_SH;
+						    else
+						       outsaida_reg = 0;
+						       
 						// PC PATH
 						jorf = 1'b0;
 						ctrl = 1'b0;
 						addorn = 1'b1;
 						// ------------
 						// Alu Decision
-						rori = 1'b0;
+						rori = 1'b1; // Shift uses Shift amount? Or register?
 						// -------------
 						// ALU OP
-						outsaida = 0;
+						// outsaida = 0; // Handled above
 						// -------------
 						// Destination Decision
 						instype = 1'b0;
 						// -------------
 						// Write back Decision
-						reoral = 1'b0;
+						reoral = 1'b1;
 						// -------------
 						// REGFILE Write enable
-						ref_w_ena = 1'b0;
+						ref_w_ena = 1'b1; // Write result
 						// -------------
 						// Data Mem Enable
 						d_mem_wena = 1'b0;
@@ -490,7 +562,7 @@ begin
 									rori = 1'b1;
 									// -------------
 									// ALU OP
-									outsaida = add;
+									outsaida_reg = ADD;
 									// -------------
 									// Destination Decision
 									instype = 1'b0;
@@ -500,6 +572,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -515,7 +588,7 @@ begin
 									rori = 1'b1;
 									// -------------
 									// ALU OP
-									outsaida = add;
+									outsaida_reg = ADD;
 									// -------------
 									// Destination Decision
 									instype = 1'b0;
@@ -525,6 +598,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -540,7 +614,7 @@ begin
 									rori = 1'b1;
 									// -------------
 									// ALU OP
-									outsaida = sub;
+									outsaida_reg = SUB;
 									// -------------
 									// Destination Decision
 									instype = 1'b0;
@@ -550,6 +624,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -565,7 +640,7 @@ begin
 									rori = 1'b1;
 									// -------------
 									// ALU OP
-									outsaida = sub;
+									outsaida_reg = SUB;
 									// -------------
 									// Destination Decision
 									instype = 1'b0;
@@ -575,6 +650,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -590,7 +666,7 @@ begin
 									rori = 1'b1;
 									// -------------
 									// ALU OP
-									outsaida = (and);
+									outsaida_reg = AND;
 									// -------------
 									// Destination Decision
 									instype = 1'b0;
@@ -600,6 +676,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -615,7 +692,7 @@ begin
 									rori = 1'b1;
 									// -------------
 									// ALU OP
-									outsaida = or;
+									outsaida_reg = OR;
 									// -------------
 									// Destination Decision
 									instype = 1'b0;
@@ -625,6 +702,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -640,7 +718,7 @@ begin
 									rori = 1'b1;
 									// -------------
 									// ALU OP
-									outsaida = xor;
+									outsaida_reg = XOR;
 									// -------------
 									// Destination Decision
 									instype = 1'b0;
@@ -650,6 +728,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -665,7 +744,7 @@ begin
 									rori = 1'b1;
 									// -------------
 									// ALU OP
-									outsaida = nor;
+									outsaida_reg = NOR;
 									// -------------
 									// Destination Decision
 									instype = 1'b0;
@@ -675,6 +754,7 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b1;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
@@ -695,7 +775,7 @@ begin
 					rori = 1'b0;
 					// -------------
 					// ALU OP
-					outsaida = 0;
+					outsaida_reg = 0;
 					// -------------
 					// Destination Decision
 					instype = 1'b0;
@@ -723,7 +803,7 @@ begin
 					rori = 1'b0;
 					// -------------
 					// ALU OP
-					outsaida = 0;
+					outsaida_reg = 0;
 					// -------------
 					// Destination Decision
 					instype = 1'b0;
@@ -741,7 +821,4 @@ begin
 		end
 end
 		
-		
-		
-		
-		
+endmodule

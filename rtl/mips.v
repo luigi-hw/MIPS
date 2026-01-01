@@ -46,7 +46,24 @@ wire [31:0]new_jump_pc;
 wire [31:0]imorsigex;
 wire [0:0]zero_ext;
 
+// Control signals from decoder
+wire [7:0] ctrol_bus;
+wire [3:0] aluop;
+wire [31:0] uc_data;
+wire slt_mux;
 
+// Unbundle control bus
+wire jorf, ctrl, addorn, rori, instype, reoral, ref_w_ena, d_mem_wena;
+assign {jorf, ctrl, addorn, rori, instype, reoral, ref_w_ena, d_mem_wena} = ctrol_bus;
+
+// Comparator signals
+reg equalrsrt;
+reg rsmaior, rsmrt;
+reg [31:0] np_jump;
+wire [31:0] pc_jump;
+
+// ALU outputs
+wire alu_cout, alu_equal, alu_zero;
 // ------------------------------------------------------------------------------
 /*################################################################################
 								Instruction FECH
@@ -107,7 +124,7 @@ instruction 32 bits
 
 ###################################################################################*/
 // ************** Register File **************************************************
-regfile REG_FILE (
+regfile #(.MEM_WIDTH(32)) REG_FILE (
 				  .clk(clock), 
 				  .w_data(writeback), // mux to UC
 				  .w_ena(ref_w_ena), 
@@ -125,8 +142,13 @@ assign sign_exted = { {16{instruction[15]}}, instruction[15:0] };
 decoder_mips INSTR_DEC (
 						.opcode(instruction[31:26]),
 						.funct(instruction[5:0]),
-						.outsaida(tocontrol)
-						.ctrol
+						.equalrsrt(equalrsrt),
+						.rsmaior(rsmaior),
+						.rsmrt(rsmrt),
+						.outsaida(aluop),
+						.ctrol(ctrol_bus),
+						.rt(uc_data),
+						.slt_mux(slt_mux)
 						);
 // *******************************************************************************
 // ****************** JUMP RESOLUTION ********************************************
@@ -150,12 +172,14 @@ assign regstb = rori ? rt_data : sign_exted ;
 // *******************************************************************************
 
 // ********************* ALU *****************************************************
-alu ALU (
-		  rega(rs_data),
-		  regb(regstb),
-		  control(aluop),
-		  out_alu(alu_out),
-		  cout()
+alu #(.DATA_WITH(32)) ALU (
+		  .rega(rs_data),
+		  .regb(regstb),
+		  .control(aluop),
+		  .out_alu(alu_out),
+		  .cout(alu_cout),
+		  .equal(alu_equal),
+		  .zero(alu_zero)
 		);
 // *******************************************************************************
 
@@ -168,6 +192,7 @@ assign new_jump_pc = addorn ? new_pc : (new_pc + sign_exted) ;
 // *******************************************************************************
 
 // ********************** Comparator *********************************************
+// Separate comparator for branch decisions (works in parallel with decoder)
 always @(rs_data, rt_data)
 begin
 	if ( rs_data == rt_data )
@@ -193,16 +218,7 @@ begin
 end
 // *******************************************************************************
 
-// *********************** Control of Mux and ALU OP *****************************
-control Control_ex (
-					.in(tocontrol),
-					.eq(equalrsrt),
-					.muxout(muxout),
-					.aluop(aluop),
-					.maior(rsmaior),
-					.aluormem(reoral)
-					);
-// *******************************************************************************
+// Control module removed - decoder_mips now provides all control signals directly via ctrol_bus
 
 /*################################################################################
 							Memory Stage
@@ -229,7 +245,8 @@ Mux
 ###################################################################################*/
 
 // ******************* Write Back Decision ***************************************
-assign writeback = reoral ? alu_out : readmem ;
+// Writeback Mux - SLT uses decoder output, otherwise ALU or Memory
+assign writeback = slt_mux ? uc_data : (reoral ? alu_out : readmem);
 // *******************************************************************************
 endmodule
 
