@@ -4,7 +4,7 @@ module tb_decoder;
 
     // Inputs
     reg [5:0] opcode;
-    reg [6:0] funct;
+    reg [5:0] funct;
     reg equalrsrt;
     reg rsmaior;
     reg rsmrt;
@@ -44,7 +44,7 @@ module tb_decoder;
         
         // Test 1: R-Type ADD (Opcode 0, Funct 32/0x20)
         opcode = 6'd0;
-        funct = 7'd32; // 0x20
+        funct = 6'd32; // 0x20
         #10;
         $display("R-Type ADD: Control=%b, ALU_Ctrl=%b", ctrol, outsaida);
 

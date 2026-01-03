@@ -28,7 +28,8 @@ module decoder_mips (
 						outsaida,
 						ctrol,
 						rt,
-						slt_mux
+						slt_mux,
+						zero_ext
 					);
 
 input	[5:0]	opcode;
@@ -40,6 +41,7 @@ output	[7:0]	ctrol; // Adjust width based on concatenation
 output	[3:0]	outsaida;
 output reg [31:0] rt; // Direct output to register file/datapath
 output reg slt_mux; // Selects Decoder RT output for Writeback
+output reg zero_ext; // Selects zero-extend for logical immediates (ANDI/ORI/XORI)
 
 // Internal Control Signals
 reg jorf;
@@ -86,6 +88,7 @@ begin
 	// Default assignments
 	rt = 32'd0;
     slt_mux = 1'b0;
+    zero_ext = 1'b0;
 	
 	if(opcode[5] == 1'b1)
 			begin
@@ -116,6 +119,7 @@ begin
 						// Data Mem Enable
 						d_mem_wena = 1'b1;
 						// -------------
+                        zero_ext = 1'b0;
 					end
 				else
 					begin
@@ -144,6 +148,7 @@ begin
 						// Data Mem Enable
 						d_mem_wena = 1'b0;
 						// -------------
+                        zero_ext = 1'b0;
 					end
 			end
 	else
@@ -172,11 +177,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						ADDIU : begin
 									// rt <= rs + imm (overflow dont trap)
@@ -199,11 +205,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						ANDI :	begin
 									// rt <= rs AND imm (zero_extended (not here))
@@ -226,11 +233,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b1;
 								end
 						ORI : 	begin
 									// rt <= rs or imm (zero_extended (not here))
@@ -253,11 +261,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b1;
 								end
 						XORI : 	begin
 									// rt <= rs xor imm (zero_extended (not here))
@@ -280,11 +289,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b1;
 								end
 						LUI : 	begin
 									// rt <= imm (really rs(0) + imm)
@@ -307,15 +317,16 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						SLTI : 	begin
 									// rt <= rs < imm pag 190
-									if (rsmaior == 1'b1)
+									if (rsmaior == 1'b0)
 									rt = 32'd1;
 									else
 									rt = 32'd0;
@@ -343,11 +354,12 @@ begin
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						SLTIU : begin
 									// pag 191 apendice B
 									// rt <= rs < imm pag 190
-									if (rsmaior == 1'b1)
+									if (rsmaior == 1'b0)
 									rt = 32'd1;
 									else
 									rt = 32'd0;
@@ -376,6 +388,7 @@ begin
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 					endcase
 				end
@@ -401,6 +414,7 @@ begin
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								if (equalrsrt == 1'b1)
 									begin
 										addorn = 1'b0;
@@ -433,6 +447,7 @@ begin
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								if (equalrsrt == 1'b0)
 									begin
 										addorn = 1'b0;
@@ -465,6 +480,7 @@ begin
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								if (!equalrsrt && !rsmrt)
 									begin
 										addorn = 1'b0;
@@ -497,6 +513,7 @@ begin
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								if (equalrsrt || rsmrt)
 									begin
 										addorn = 1'b0;
@@ -517,7 +534,7 @@ begin
 					//SPECIAL
 					if (funct[5] == 1'b0)
 						begin
-						    // SHIFT INSTRUCTIONS (SLL, SRL)
+						// SHIFT INSTRUCTIONS (SLL, SRL)
 						    // funct[5:0]: SLL=000000, SRL=000010, SRA=000011
 						    if (funct[1:0] == 2'b00) // SLL
 						       outsaida_reg = L_SH;
@@ -549,6 +566,7 @@ begin
 						// Data Mem Enable
 						d_mem_wena = 1'b0;
 						// -------------
+                        zero_ext = 1'b0;
 						end
 					else
 					case (funct[2:0])
@@ -572,11 +590,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						3'd1:	begin
 									// PC PATH
@@ -598,11 +617,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						3'd2:	begin
 									// PC PATH
@@ -624,11 +644,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						3'd3:	begin
 									// PC PATH
@@ -650,11 +671,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						3'd4:	begin
 									// PC PATH
@@ -676,11 +698,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						3'd5:	begin
 									// PC PATH
@@ -702,11 +725,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						3'd6:	begin
 									// PC PATH
@@ -728,11 +752,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 						3'd7:	begin
 									// PC PATH
@@ -754,11 +779,12 @@ begin
 									// -------------
 									// REGFILE Write enable
 									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b1;
+                                    slt_mux = 1'b0;
 									// -------------
 									// Data Mem Enable
 									d_mem_wena = 1'b0;
 									// -------------
+                                    zero_ext = 1'b0;
 								end
 					endcase
 				end
@@ -789,6 +815,7 @@ begin
 					// Data Mem Enable
 					d_mem_wena = 1'b0;
 					// -------------
+                    zero_ext = 1'b0;
 				end
 			else
 				begin
@@ -817,6 +844,7 @@ begin
 					// Data Mem Enable
 					d_mem_wena = 1'b0;
 					// -------------
+                    zero_ext = 1'b0;
 				end
 		end
 end

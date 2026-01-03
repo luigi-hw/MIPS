@@ -35,15 +35,12 @@ input [ADDR_WIDTH-1:0] addr;
 input clk;
 input w_ena;
 input [MEM_WORD-1:0] w_data;
-output reg [MEM_WORD-1:0] r_data;
+output [MEM_WORD-1:0] r_data;
 
 //the register memory
 reg [ADDR_WIDTH-1:0]MEM1[0:MEM_WORD];
 
-always @(addr)
-begin
-	r_data = MEM1[addr];
-end
+assign r_data = MEM1[addr];
 
 always @(posedge clk)
 begin

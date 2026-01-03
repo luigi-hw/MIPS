@@ -40,23 +40,14 @@ input w_ena;
 input [MEM_WIDTH-1:0] w_data;
 input [ADDR_WIDTH-1:0] w_addr, r1_addr;
 input [ADDR_WIDTH-1:0] r2_addr;
-output reg [MEM_WIDTH-1:0]r1_data;
-output reg [MEM_WIDTH-1:0]r2_data;
+output [MEM_WIDTH-1:0]r1_data;
+output [MEM_WIDTH-1:0]r2_data;
 
 //the register memory
 reg [MEM_WIDTH-1:0]MEM[0:MEM_DEPTH];
 
-always @(r1_addr or r2_addr)
-begin
-		if (r1_addr == 5'd0)
-			r1_data = 32'd0;
-		else
-			r1_data = MEM[r1_addr];
-		if (r2_addr == 5'd0)
-			r2_data = 32'd0;
-		else
-			r2_data = MEM[r2_addr];
-end
+assign r1_data = (r1_addr == 5'd0) ? {MEM_WIDTH{1'b0}} : MEM[r1_addr];
+assign r2_data = (r2_addr == 5'd0) ? {MEM_WIDTH{1'b0}} : MEM[r2_addr];
 
 always @(posedge clk)
 begin

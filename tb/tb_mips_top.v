@@ -62,11 +62,32 @@ module tb_mips_top;
             end
         end
     endtask
+    
+    // Task to check a specific register file entry
+    task check_reg;
+        input [4:0] reg_index;
+        input [31:0] expected;
+        input [127:0] instr_name;
+        begin
+            test_num = test_num + 1;
+            if (uut.REG_FILE.MEM[reg_index] === expected) begin
+                $display("[PASS] Test %0d: %s - Reg[%0d] Expected: %h, Got: %h", 
+                         test_num, instr_name, reg_index, expected, uut.REG_FILE.MEM[reg_index]);
+                pass_count = pass_count + 1;
+            end else begin
+                $display("[FAIL] Test %0d: %s - Reg[%0d] Expected: %h, Got: %h", 
+                         test_num, instr_name, reg_index, expected, uut.REG_FILE.MEM[reg_index]);
+                fail_count = fail_count + 1;
+            end
+        end
+    endtask
 
     // Test sequence
     initial begin
         $dumpfile("tb_mips_top.vcd");
         $dumpvars(0, tb_mips_top);
+        $display("PC/instr trace:");
+        $monitor("t=%0t pc=%0d instr=%h rs=%h rt=%h regb=%h wb=%h alu=%h dest=%0d wena=%b jorf=%b ctrl=%b", $time, uut.program_counter, uut.instruction, uut.rs_data, uut.rt_data, uut.regstb, uut.writeback, uut.alu_out, uut.dest, uut.ref_w_ena, uut.jorf, uut.ctrol_bus);
         
         $display("=================================================================");
         $display("       MIPS Processor Comprehensive Testbench");
@@ -85,65 +106,63 @@ module tb_mips_top;
         @(posedge clk); // Wait for first instruction
         
         // ============ TEST ADDI INSTRUCTIONS ============
-        @(posedge clk); #1;
+        @(negedge clk); #1;
         check_result(32'h00000005, "ADDI $1, $0, 5");
         
-        @(posedge clk); #1;
+        @(negedge clk); #1;
         check_result(32'h0000000A, "ADDI $2, $0, 10");
         
-        @(posedge clk); #1;
+        @(negedge clk); #1;
         check_result(32'h0000000F, "ADDI $3, $0, 15");
         
-        @(posedge clk); #1;
+        @(negedge clk); #1;
         check_result(32'hFFFFFFFF, "ADDI $4, $0, -1");
         
         // ============ TEST R-TYPE INSTRUCTIONS ============
-        @(posedge clk); #1;
-        check_alu(32'h0000000F, "ADD $5=$1+$2 (5+10=15)");
+        @(negedge clk); #1;
+        check_result(32'h0000000F, "ADD $5=$1+$2 (5+10=15)");
         
-        @(posedge clk); #1;
-        check_alu(32'h0000000F, "ADDU $6=$1+$2 (15)");
+        @(negedge clk); #1;
+        check_result(32'h0000000F, "ADDU $6=$1+$2 (15)");
         
-        @(posedge clk); #1;
-        check_alu(32'h00000005, "SUB $7=$2-$1 (10-5=5)");
+        @(negedge clk); #1;
+        check_result(32'h00000005, "SUB $7=$2-$1 (10-5=5)");
         
-        @(posedge clk); #1;
-        check_alu(32'h0000000A, "SUBU $8=$3-$1 (15-5=10)");
+        @(negedge clk); #1;
+        check_result(32'h0000000A, "SUBU $8=$3-$1 (15-5=10)");
         
-        @(posedge clk); #1;
-        check_alu(32'h00000000, "AND $9=$1&$2 (5&10=0)");
+        @(negedge clk); #1;
+        check_result(32'h00000000, "AND $9=$1&$2 (5&10=0)");
         
-        @(posedge clk); #1;
-        check_alu(32'h0000000F, "OR $10=$1|$2 (5|10=15)");
+        @(negedge clk); #1;
+        check_result(32'h0000000F, "OR $10=$1|$2 (5|10=15)");
         
-        @(posedge clk); #1;
-        check_alu(32'h0000000F, "XOR $11=$1^$2 (5^10=15)");
+        @(negedge clk); #1;
+        check_result(32'h0000000F, "XOR $11=$1^$2 (5^10=15)");
         
-        @(posedge clk); #1;
-        check_alu(32'hFFFFFFF0, "NOR $12=~($1|$2)");
+        @(negedge clk); #1;
+        check_result(32'hFFFFFFF0, "NOR $12=~($1|$2)");
         
         // ============ TEST I-TYPE ALU INSTRUCTIONS ============
-        @(posedge clk); #1;
-        check_alu(32'h00000069, "ADDIU $13=$1+100 (105)");
+        @(negedge clk); #1;
+        check_result(32'h00000069, "ADDIU $13=$1+100 (105)");
         
-        @(posedge clk); #1;
-        check_alu(32'h0000000A, "ANDI $14=$2&0x0F (10)");
+        @(negedge clk); #1;
+        check_result(32'h0000000A, "ANDI $14=$2&0x0F (10)");
         
-        @(posedge clk); #1;
-        check_alu(32'h000000FA, "ORI $15=$2|0xF0 (250)");
+        @(negedge clk); #1;
+        check_result(32'h000000FA, "ORI $15=$2|0xF0 (250)");
         
-        @(posedge clk); #1;
-        check_alu(32'h000000F5, "XORI $16=$2^0xFF (245)");
+        @(negedge clk); #1;
+        check_result(32'h000000F5, "XORI $16=$2^0xFF (245)");
         
-        @(posedge clk); #1;
-        // LUI loads upper immediate - check writeback
+        @(negedge clk); #1;
         check_result(32'h12340000, "LUI $17=0x1234<<16");
         
-        @(posedge clk); #1;
-        // SLTI uses slt_mux path
+        @(negedge clk); #1;
         check_result(32'h00000001, "SLTI $18=(5<10)?1:0");
         
-        @(posedge clk); #1;
+        @(negedge clk); #1;
         check_result(32'h00000000, "SLTIU $19=(10<5)?1:0");
         
         // ============ TEST MEMORY INSTRUCTIONS ============
@@ -161,7 +180,6 @@ module tb_mips_top;
             $display("[FAIL] Test %0d: SW $2, 4($0) - MemWrite NOT Active", ++test_num);
         
         @(posedge clk); #1;
-        // LW - check writeback from memory
         check_result(32'h00000005, "LW $20 from mem[0]");
         
         @(posedge clk); #1;
@@ -169,24 +187,17 @@ module tb_mips_top;
         
         // ============ TEST BRANCH INSTRUCTIONS ============
         @(posedge clk); #1;
-        // BEQ $1,$1,+2 should branch (skip 3 next cycles of instruction fetch effectively)
-        // Offset is in instructions, PC = PC + 1 + offset (in this word-indexed model)
-        if (uut.jorf === 1'b1)
-            $display("[PASS] Test %0d: BEQ $1,$1,+2 - Branch Signal Active", ++test_num);
+        if (uut.program_counter === 32'd26)
+            $display("[PASS] Test %0d: BEQ $1,$1,+2 - PC jumped to 26", ++test_num);
         else
-            $display("[FAIL] Test %0d: BEQ $1,$1,+2 - Branch Signal NOT Active", ++test_num);
+            $display("[FAIL] Test %0d: BEQ $1,$1,+2 - PC did not jump (pc=%0d)", ++test_num, uut.program_counter);
         
-        // Allow branch to take effect
-        @(posedge clk); #1; // PC updates
-        @(posedge clk); #1; // Instr memory updates
-        @(posedge clk); #1; // Process instruction
-        
-        // BNE $1,$2,+1 should branch (1 != 2)
         @(posedge clk); #1;
-        if (uut.jorf === 1'b1)
-            $display("[PASS] Test %0d: BNE $1,$2,+1 - Branch Signal Active", ++test_num);
+        @(posedge clk); #1;
+        if (uut.program_counter === 32'd29)
+            $display("[PASS] Test %0d: BNE $1,$2,+1 - PC jumped to 29", ++test_num);
         else
-            $display("[FAIL] Test %0d: BNE $1,$2,+1 - Branch Signal NOT Active", ++test_num);
+            $display("[FAIL] Test %0d: BNE $1,$2,+1 - PC did not jump (pc=%0d)", ++test_num, uut.program_counter);
         
         // Final cycles
         repeat(10) @(posedge clk);

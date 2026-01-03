@@ -40,7 +40,8 @@ wire [31:0]rt_data;
 wire [31:0]regstb;
 wire [31:0]alu_out;
 wire [31:0]readmem;
-wire [31:0]writeback;
+reg [31:0]writeback;
+wire [31:0]writeback_comb;
 wire [4:0]dest;
 wire [31:0]new_jump_pc;
 wire [31:0]imorsigex;
@@ -126,7 +127,7 @@ instruction 32 bits
 // ************** Register File **************************************************
 regfile #(.MEM_WIDTH(32)) REG_FILE (
 				  .clk(clock), 
-				  .w_data(writeback), // mux to UC
+				  .w_data(writeback_comb), // mux to UC
 				  .w_ena(ref_w_ena), 
 				  .r1_data(rs_data), 
 				  .r2_data(rt_data), 
@@ -136,7 +137,9 @@ regfile #(.MEM_WIDTH(32)) REG_FILE (
 				);
 // *******************************************************************************
 // ***************** Signal Extension ********************************************
-assign sign_exted = { {16{instruction[15]}}, instruction[15:0] }; 
+assign sign_exted = (instruction[31:26] == 6'b001111) ? {instruction[15:0], 16'd0} : // LUI
+                    (zero_ext ? {16'd0, instruction[15:0]} 
+                              : { {16{instruction[15]}}, instruction[15:0] }); 
 // *******************************************************************************
 // ****************** Instruction Decoder unit ***********************************
 decoder_mips INSTR_DEC (
@@ -148,7 +151,8 @@ decoder_mips INSTR_DEC (
 						.outsaida(aluop),
 						.ctrol(ctrol_bus),
 						.rt(uc_data),
-						.slt_mux(slt_mux)
+						.slt_mux(slt_mux),
+						.zero_ext(zero_ext)
 						);
 // *******************************************************************************
 // ****************** JUMP RESOLUTION ********************************************
@@ -246,7 +250,15 @@ Mux
 
 // ******************* Write Back Decision ***************************************
 // Writeback Mux - SLT uses decoder output, otherwise ALU or Memory
-assign writeback = slt_mux ? uc_data : (reoral ? alu_out : readmem);
+assign writeback_comb = slt_mux ? uc_data : (reoral ? alu_out : readmem);
+
+always @(posedge clock or negedge reset)
+begin
+	if(!reset)
+		writeback <= 32'd0;
+	else
+		writeback <= writeback_comb;
+end
 // *******************************************************************************
 endmodule
 
