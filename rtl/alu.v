@@ -12,9 +12,9 @@
 //
 // Dependencies: 
 //
-// Revision 0.05 - Alterações menores
-// Revision 0.04 - Adaptação para datapath final
-// Revision 0.03 - Parametrização
+// Revision 0.05 - Alteraï¿½ï¿½es menores
+// Revision 0.04 - Adaptaï¿½ï¿½o para datapath final
+// Revision 0.03 - Parametrizaï¿½ï¿½o
 // Revision 0.02 -Escrita do codigo
 // Revision 0.01 - File Created
 // Additional Comments: 
@@ -45,7 +45,7 @@ parameter OP_SIZE = 4;
 `define XNOR 4'd9
 `define NOT 4'd10
 `define COMP 4'd11
-`define ADDO 4'd12
+`define SRA 4'd12
 `define SUBO 4'd13
 `define SIG 4'd14
 `define SOME 4'd15
@@ -84,7 +84,7 @@ begin
 					else
 						equal = 1'b0;
 				end
-		`ADDO : pre_out = rega + 16'd1; //12
+		`SRA  : pre_out = $signed(rega) >>> regb; //12
 		`SUBO : pre_out = rega - 16'd1; //13
 		`SIG  : pre_out = (~rega) + 16'd1; //14
 		`SOME : pre_out = rega + (~regb); //15

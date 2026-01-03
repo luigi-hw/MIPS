@@ -46,6 +46,8 @@ wire [4:0]dest;
 wire [31:0]new_jump_pc;
 wire [31:0]imorsigex;
 wire [0:0]zero_ext;
+wire jr_ctrl;
+wire rsneg;
 
 // Control signals from decoder
 wire [7:0] ctrol_bus;
@@ -145,18 +147,21 @@ assign sign_exted = (instruction[31:26] == 6'b001111) ? {instruction[15:0], 16'd
 decoder_mips INSTR_DEC (
 						.opcode(instruction[31:26]),
 						.funct(instruction[5:0]),
+						.rt_code(instruction[20:16]),
 						.equalrsrt(equalrsrt),
 						.rsmaior(rsmaior),
 						.rsmrt(rsmrt),
+						.rsneg(rsneg),
 						.outsaida(aluop),
 						.ctrol(ctrol_bus),
 						.rt(uc_data),
 						.slt_mux(slt_mux),
-						.zero_ext(zero_ext)
+						.zero_ext(zero_ext),
+						.jr_ctrl(jr_ctrl)
 						);
 // *******************************************************************************
 // ****************** JUMP RESOLUTION ********************************************
-assign pc_jump = ctrl ? { {6'd0},instruction[25:0]} : new_jump_pc;
+assign pc_jump = ctrl ? { {6'd0},instruction[25:0]} : (jr_ctrl ? rs_data : new_jump_pc);
 // *******************************************************************************
 
 /*################################################################################
@@ -204,6 +209,8 @@ begin
 	else
 	equalrsrt = 1'b0;
 end
+
+assign rsneg = rs_data[31];
 
 always @(rs_data, sign_exted)
 begin

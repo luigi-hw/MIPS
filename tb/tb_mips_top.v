@@ -82,6 +82,24 @@ module tb_mips_top;
         end
     endtask
 
+    task check_value;
+        input [31:0] actual;
+        input [31:0] expected;
+        input [127:0] instr_name;
+        begin
+            test_num = test_num + 1;
+            if (actual === expected) begin
+                $display("[PASS] Test %0d: %s - Expected: %h, Got: %h",
+                         test_num, instr_name, expected, actual);
+                pass_count = pass_count + 1;
+            end else begin
+                $display("[FAIL] Test %0d: %s - Expected: %h, Got: %h",
+                         test_num, instr_name, expected, actual);
+                fail_count = fail_count + 1;
+            end
+        end
+    endtask
+
     // Test sequence
     initial begin
         $dumpfile("tb_mips_top.vcd");
@@ -166,41 +184,69 @@ module tb_mips_top;
         check_result(32'h00000000, "SLTIU $19=(10<5)?1:0");
         
         // ============ TEST MEMORY INSTRUCTIONS ============
-        @(posedge clk); #1;
-        // SW - check mem_write is active
-        if (uut.d_mem_wena === 1'b1)
-            $display("[PASS] Test %0d: SW $1, 0($0) - MemWrite Active", ++test_num);
-        else
-            $display("[FAIL] Test %0d: SW $1, 0($0) - MemWrite NOT Active", ++test_num);
+        @(negedge clk); #1;
+        @(negedge clk); #1;
         
         @(posedge clk); #1;
-        if (uut.d_mem_wena === 1'b1)
-            $display("[PASS] Test %0d: SW $2, 4($0) - MemWrite Active", ++test_num);
-        else
-            $display("[FAIL] Test %0d: SW $2, 4($0) - MemWrite NOT Active", ++test_num);
+        check_value(uut.DATA_MEM.MEM1[0], 32'h00000005, "SW wrote mem[0]=5");
+        check_value(uut.DATA_MEM.MEM1[4], 32'h0000000A, "SW wrote mem[4]=10");
         
-        @(posedge clk); #1;
+        @(negedge clk); #1;
         check_result(32'h00000005, "LW $20 from mem[0]");
         
-        @(posedge clk); #1;
+        @(negedge clk); #1;
         check_result(32'h0000000A, "LW $21 from mem[4]");
         
         // ============ TEST BRANCH INSTRUCTIONS ============
         @(posedge clk); #1;
-        if (uut.program_counter === 32'd26)
-            $display("[PASS] Test %0d: BEQ $1,$1,+2 - PC jumped to 26", ++test_num);
-        else
-            $display("[FAIL] Test %0d: BEQ $1,$1,+2 - PC did not jump (pc=%0d)", ++test_num, uut.program_counter);
+        check_value(uut.program_counter, 32'd26, "BEQ $1,$1,+2 - PC jumped to 26");
         
         @(posedge clk); #1;
         @(posedge clk); #1;
-        if (uut.program_counter === 32'd29)
-            $display("[PASS] Test %0d: BNE $1,$2,+1 - PC jumped to 29", ++test_num);
-        else
-            $display("[FAIL] Test %0d: BNE $1,$2,+1 - PC did not jump (pc=%0d)", ++test_num, uut.program_counter);
+        check_value(uut.program_counter, 32'd29, "BNE $1,$2,+1 - PC jumped to 29");
         
-        // Final cycles
-        repeat(10) @(posedge clk);
+        // ============ TEST BLTZ/BGEZ ============
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        @(negedge clk); #1;
+        check_reg(24, 32'hFFFFFFFE, "ADDI $24, $0, -2");
+        
+        @(posedge clk); #1;
+        check_value(uut.program_counter, 32'd34, "BLTZ $24,+1 - PC jumped to 34");
+        
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        check_value(uut.program_counter, 32'd38, "BGEZ $26,+1 - PC jumped to 38");
+        
+        // ============ TEST JR/JALR ============
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        check_value(uut.program_counter, 32'd45, "JR $28 - PC jumped to 45");
+        
+        @(posedge clk); #1;
+        @(negedge clk); #1;
+        check_reg(29, 32'h00000007, "JR target executed");
+        
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        check_value(uut.program_counter, 32'd48, "JALR $30 - PC jumped to 48");
+        
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        @(negedge clk); #1;
+        check_reg(31, 32'h00000001, "JALR target executed");
+        
+        // ============ TEST SLT/SLTU (R-Type) ============
+        @(posedge clk); #1;
+        @(negedge clk); #1;
+        check_result(32'h00000001, "SLT $24=$1<$2");
+        
+        @(posedge clk); #1;
+        @(negedge clk); #1;
+        check_result(32'h00000000, "SLTU $25=$2<$1");
 
         // ============ SUMMARY ============
         $display("\n=================================================================");

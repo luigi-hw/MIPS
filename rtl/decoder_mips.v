@@ -22,26 +22,32 @@
 module decoder_mips (
 						opcode,
 						funct,
+						rt_code,
 						equalrsrt,
 						rsmaior,
 						rsmrt,
+						rsneg,
 						outsaida,
 						ctrol,
 						rt,
 						slt_mux,
-						zero_ext
+						zero_ext,
+						jr_ctrl
 					);
 
 input	[5:0]	opcode;
 input	[5:0]	funct; // MIPS standard: 6 bits
+input   [4:0]   rt_code; // rt field for REGIMM (BLTZ/BGEZ)
 input           equalrsrt;
 input           rsmaior;
 input           rsmrt; // rs < rt? or rs > rt?
+input           rsneg; // rs < 0 (signed)
 output	[7:0]	ctrol; // Adjust width based on concatenation
 output	[3:0]	outsaida;
 output reg [31:0] rt; // Direct output to register file/datapath
 output reg slt_mux; // Selects Decoder RT output for Writeback
 output reg zero_ext; // Selects zero-extend for logical immediates (ANDI/ORI/XORI)
+output reg jr_ctrl; // Selects PC = rs for JR/JALR
 
 // Internal Control Signals
 reg jorf;
@@ -67,6 +73,7 @@ parameter L_SH = 4'd5;
 parameter R_SH = 4'd6;
 parameter NOR  = 4'd8;
 parameter COMP = 4'd11;
+parameter SRA  = 4'd12;
 
 // Instruction Decoding Parameters
 parameter ADDI = 3'b000;
@@ -83,12 +90,13 @@ parameter BNE = 2'b01;
 parameter BLEZ = 2'b10;
 parameter BGTZ = 2'b11;
 
-always @(opcode or funct or equalrsrt or rsmaior or rsmrt)
+always @(opcode or funct or rt_code or equalrsrt or rsmaior or rsmrt or rsneg)
 begin
 	// Default assignments
 	rt = 32'd0;
     slt_mux = 1'b0;
     zero_ext = 1'b0;
+    jr_ctrl = 1'b0;
 	
 	if(opcode[5] == 1'b1)
 			begin
@@ -481,7 +489,7 @@ begin
 									d_mem_wena = 1'b0;
 									// -------------
                                     zero_ext = 1'b0;
-								if (!equalrsrt && !rsmrt)
+								if (!equalrsrt && !rsneg)
 									begin
 										addorn = 1'b0;
 										ctrl = 1'b0;
@@ -514,7 +522,7 @@ begin
 									d_mem_wena = 1'b0;
 									// -------------
                                     zero_ext = 1'b0;
-								if (equalrsrt || rsmrt)
+								if (equalrsrt || rsneg)
 									begin
 										addorn = 1'b0;
 										ctrl = 1'b0;
@@ -529,19 +537,72 @@ begin
 								end
 					endcase
 				end
+			else if (opcode == 6'b000001)
+				begin
+					// REGIMM group: BLTZ (rt=00000) and BGEZ (rt=00001)
+					rori = 1'b1;
+					outsaida_reg = COMP;
+					instype = 1'b1;
+					reoral = 1'b1;
+					ref_w_ena = 1'b0;
+					d_mem_wena = 1'b0;
+                    zero_ext = 1'b0;
+					addorn = 1'b0;
+					ctrl = 1'b0;
+					if (rt_code == 5'b00000) // BLTZ
+						begin
+							if (rsneg)
+								jorf = 1'b1;
+							else
+								jorf = 1'b0;
+						end
+					else // BGEZ (rt_code == 00001)
+						begin
+							if (!rsneg)
+								jorf = 1'b1;
+							else
+								jorf = 1'b0;
+						end
+				end
 			else if (opcode[1:0] == 2'b0)
 				begin
 					//SPECIAL
-					if (funct[5] == 1'b0)
+					if (funct == 6'b001000)
 						begin
-						// SHIFT INSTRUCTIONS (SLL, SRL)
-						    // funct[5:0]: SLL=000000, SRL=000010, SRA=000011
-						    if (funct[1:0] == 2'b00) // SLL
-						       outsaida_reg = L_SH;
-						    else if (funct[1:0] == 2'b10) // SRL
-						       outsaida_reg = R_SH;
-						    else
-						       outsaida_reg = 0;
+						jorf = 1'b1;
+						ctrl = 1'b0;
+						addorn = 1'b0;
+						rori = 1'b0;
+						outsaida_reg = 0;
+						instype = 1'b0;
+						reoral = 1'b0;
+						ref_w_ena = 1'b0;
+						d_mem_wena = 1'b0;
+                        zero_ext = 1'b0;
+                        jr_ctrl = 1'b1;
+						end
+					else if (funct == 6'b001001)
+						begin
+						jorf = 1'b1;
+						ctrl = 1'b0;
+						addorn = 1'b0;
+						rori = 1'b0;
+						outsaida_reg = 0;
+						instype = 1'b0;
+						reoral = 1'b0;
+						ref_w_ena = 1'b0;
+						d_mem_wena = 1'b0;
+                        zero_ext = 1'b0;
+                        jr_ctrl = 1'b1;
+						end
+					else if (funct[5] == 1'b0)
+						begin
+						if (funct[1:0] == 2'b00)
+							outsaida_reg = L_SH;
+						else if (funct[1:0] == 2'b10)
+							outsaida_reg = R_SH;
+						else
+							outsaida_reg = SRA;
 						       
 						// PC PATH
 						jorf = 1'b0;
@@ -567,6 +628,44 @@ begin
 						d_mem_wena = 1'b0;
 						// -------------
                         zero_ext = 1'b0;
+						end
+					else
+					begin
+					if (funct == 6'b101010)
+						begin
+							if (rsmrt == 1'b1)
+								rt = 32'd1;
+							else
+								rt = 32'd0;
+							jorf = 1'b0;
+							ctrl = 1'b0;
+							addorn = 1'b1;
+							rori = 1'b1;
+							outsaida_reg = 0;
+							instype = 1'b0;
+							reoral = 1'b1;
+							ref_w_ena = 1'b1;
+                            slt_mux = 1'b1;
+							d_mem_wena = 1'b0;
+                            zero_ext = 1'b0;
+						end
+					else if (funct == 6'b101011)
+						begin
+							if (rsmrt == 1'b1)
+								rt = 32'd1;
+							else
+								rt = 32'd0;
+							jorf = 1'b0;
+							ctrl = 1'b0;
+							addorn = 1'b1;
+							rori = 1'b1;
+							outsaida_reg = 0;
+							instype = 1'b0;
+							reoral = 1'b1;
+							ref_w_ena = 1'b1;
+                            slt_mux = 1'b1;
+							d_mem_wena = 1'b0;
+                            zero_ext = 1'b0;
 						end
 					else
 					case (funct[2:0])
@@ -787,6 +886,7 @@ begin
                                     zero_ext = 1'b0;
 								end
 					endcase
+					end
 				end
 			else if (opcode[0] == 1'b1)
 				begin
