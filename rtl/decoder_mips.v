@@ -12,10 +12,6 @@
 //
 // Dependencies: 
 //
-// Revision: 
-// Revision 0.01 - File Created
-// Revision 0.02 - Review of Instruction Decode
-// Revision 0.03 - Completing Instruction decoder first version
 // Additional Comments: 
 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -63,17 +59,23 @@ reg [3:0] outsaida_reg;
 assign ctrol = {jorf, ctrl, addorn, rori, instype, reoral, ref_w_ena, d_mem_wena};
 assign outsaida = outsaida_reg;
 
-// ALU Opcode Parameters (Matching alu.v)
+// ALU Opcode Parameters (Matching alu.v MIPS I set)
 parameter ADD  = 4'd0;
 parameter SUB  = 4'd1;
 parameter AND  = 4'd2;
 parameter OR   = 4'd3;
 parameter XOR  = 4'd4;
-parameter L_SH = 4'd5;
-parameter R_SH = 4'd6;
+parameter SLLV = 4'd5;
+parameter SRLV = 4'd6;
+parameter SLT  = 4'd7;
 parameter NOR  = 4'd8;
+parameter SLTU = 4'd9;
+parameter SLL  = 4'd10;
 parameter COMP = 4'd11;
-parameter SRA  = 4'd12;
+parameter SRAV = 4'd12;
+parameter SUBU = 4'd13;
+parameter ADDU = 4'd14;
+parameter SRL  = 4'd15;
 
 // Instruction Decoding Parameters
 parameter ADDI = 3'b000;
@@ -193,7 +195,7 @@ begin
                                     zero_ext = 1'b0;
 								end
 						ADDIU : begin
-									// rt <= rs + imm (overflow dont trap)
+									// rt <= rs + imm (overflow dont trap) usando ADDU na ALU
 									// PC PATH
 									jorf = 1'b0;
 									ctrl = 1'b0;
@@ -203,7 +205,7 @@ begin
 									rori = 1'b0;
 									// -------------
 									// ALU OP
-									outsaida_reg = ADD;
+									outsaida_reg = ADDU;
 									// -------------
 									// Destination Decision
 									instype = 1'b1;
@@ -595,81 +597,63 @@ begin
                         zero_ext = 1'b0;
                         jr_ctrl = 1'b1;
 						end
-					else if (funct[5] == 1'b0)
+					else if (funct == 6'b000000 || funct == 6'b000010 || funct == 6'b000011 || 
+                             funct == 6'b000100 || funct == 6'b000110 || funct == 6'b000111)
 						begin
-						if (funct[1:0] == 2'b00)
-							outsaida_reg = L_SH;
-						else if (funct[1:0] == 2'b10)
-							outsaida_reg = R_SH;
-						else
-							outsaida_reg = SRA;
-						       
-						// PC PATH
-						jorf = 1'b0;
-						ctrl = 1'b0;
-						addorn = 1'b1;
-						// ------------
-						// Alu Decision
-						rori = 1'b1; // Shift uses Shift amount? Or register?
-						// -------------
-						// ALU OP
-						// outsaida = 0; // Handled above
-						// -------------
-						// Destination Decision
-						instype = 1'b0;
-						// -------------
-						// Write back Decision
-						reoral = 1'b1;
-						// -------------
-						// REGFILE Write enable
-						ref_w_ena = 1'b1; // Write result
-						// -------------
-						// Data Mem Enable
-						d_mem_wena = 1'b0;
-						// -------------
-                        zero_ext = 1'b0;
+							// Shift operations (SPECIAL): 
+							// 000000 SLL, 000010 SRL, 000011 SRA (imediato/shamt),
+							// 000100 SLLV, 000110 SRLV, 000111 SRAV (variável)
+							jorf = 1'b0;
+							ctrl = 1'b0;
+							addorn = 1'b1;
+							rori = 1'b1; // usa rt_data como quantidade no datapath atual
+							if (funct == 6'b000000)      outsaida_reg = SLL;
+							else if (funct == 6'b000010) outsaida_reg = SRL;
+							else if (funct == 6'b000011) outsaida_reg = SRAV;
+							else if (funct == 6'b000100) outsaida_reg = SLLV;
+							else if (funct == 6'b000110) outsaida_reg = SRLV;
+							else                         outsaida_reg = SRAV;
+							instype = 1'b0;
+							reoral = 1'b1;
+							ref_w_ena = 1'b1;
+							d_mem_wena = 1'b0;
+                            zero_ext = 1'b0;
 						end
 					else
 					begin
 					if (funct == 6'b101010)
 						begin
-							if (rsmrt == 1'b1)
-								rt = 32'd1;
-							else
-								rt = 32'd0;
+							// SLT (signed) - resultado via ALU
 							jorf = 1'b0;
 							ctrl = 1'b0;
 							addorn = 1'b1;
 							rori = 1'b1;
-							outsaida_reg = 0;
+							outsaida_reg = SLT;
 							instype = 1'b0;
 							reoral = 1'b1;
 							ref_w_ena = 1'b1;
-                            slt_mux = 1'b1;
+                            slt_mux = 1'b0;
 							d_mem_wena = 1'b0;
                             zero_ext = 1'b0;
 						end
 					else if (funct == 6'b101011)
 						begin
-							if (rsmrt == 1'b1)
-								rt = 32'd1;
-							else
-								rt = 32'd0;
+							// SLTU (unsigned) - resultado via ALU
 							jorf = 1'b0;
 							ctrl = 1'b0;
 							addorn = 1'b1;
 							rori = 1'b1;
-							outsaida_reg = 0;
+							outsaida_reg = SLTU;
 							instype = 1'b0;
 							reoral = 1'b1;
 							ref_w_ena = 1'b1;
-                            slt_mux = 1'b1;
+                            slt_mux = 1'b0;
 							d_mem_wena = 1'b0;
                             zero_ext = 1'b0;
 						end
 					else
-					case (funct[2:0])
-						3'd0: 	begin
+					case (funct)
+						6'b100000: 	begin // ADD (signed, overflow trap via ALU overflow se integrado)
 									// PC PATH
 									jorf = 1'b0;
 									ctrl = 1'b0;
@@ -696,7 +680,7 @@ begin
 									// -------------
                                     zero_ext = 1'b0;
 								end
-						3'd1:	begin
+						6'b100001:	begin // ADDU (unsigned)
 									// PC PATH
 									jorf = 1'b0;
 									ctrl = 1'b0;
@@ -706,7 +690,7 @@ begin
 									rori = 1'b1;
 									// -------------
 									// ALU OP
-									outsaida_reg = ADD;
+									outsaida_reg = ADDU;
 									// -------------
 									// Destination Decision
 									instype = 1'b0;
@@ -723,34 +707,7 @@ begin
 									// -------------
                                     zero_ext = 1'b0;
 								end
-						3'd2:	begin
-									// PC PATH
-									jorf = 1'b0;
-									ctrl = 1'b0;
-									addorn = 1'b1;
-									// ------------
-									// Alu Decision
-									rori = 1'b1;
-									// -------------
-									// ALU OP
-									outsaida_reg = SUB;
-									// -------------
-									// Destination Decision
-									instype = 1'b0;
-									// -------------
-									// Write back Decision
-									reoral = 1'b1;
-									// -------------
-									// REGFILE Write enable
-									ref_w_ena = 1'b1;
-                                    slt_mux = 1'b0;
-									// -------------
-									// Data Mem Enable
-									d_mem_wena = 1'b0;
-									// -------------
-                                    zero_ext = 1'b0;
-								end
-						3'd3:	begin
+						6'b100010:	begin // SUB (signed)
 									// PC PATH
 									jorf = 1'b0;
 									ctrl = 1'b0;
@@ -777,7 +734,34 @@ begin
 									// -------------
                                     zero_ext = 1'b0;
 								end
-						3'd4:	begin
+						6'b100011:	begin // SUBU (unsigned)
+									// PC PATH
+									jorf = 1'b0;
+									ctrl = 1'b0;
+									addorn = 1'b1;
+									// ------------
+									// Alu Decision
+									rori = 1'b1;
+									// -------------
+									// ALU OP
+									outsaida_reg = SUBU;
+									// -------------
+									// Destination Decision
+									instype = 1'b0;
+									// -------------
+									// Write back Decision
+									reoral = 1'b1;
+									// -------------
+									// REGFILE Write enable
+									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b0;
+									// -------------
+									// Data Mem Enable
+									d_mem_wena = 1'b0;
+									// -------------
+                                    zero_ext = 1'b0;
+								end
+						6'b100100:	begin // AND
 									// PC PATH
 									jorf = 1'b0;
 									ctrl = 1'b0;
@@ -804,146 +788,85 @@ begin
 									// -------------
                                     zero_ext = 1'b0;
 								end
-						3'd5:	begin
-									// PC PATH
+						6'b100101:	begin // OR
 									jorf = 1'b0;
 									ctrl = 1'b0;
 									addorn = 1'b1;
-									// ------------
-									// Alu Decision
 									rori = 1'b1;
-									// -------------
-									// ALU OP
 									outsaida_reg = OR;
-									// -------------
-									// Destination Decision
 									instype = 1'b0;
-									// -------------
-									// Write back Decision
 									reoral = 1'b1;
-									// -------------
-									// REGFILE Write enable
 									ref_w_ena = 1'b1;
                                     slt_mux = 1'b0;
-									// -------------
-									// Data Mem Enable
 									d_mem_wena = 1'b0;
-									// -------------
                                     zero_ext = 1'b0;
 								end
-						3'd6:	begin
-									// PC PATH
+						6'b100110:	begin // XOR
 									jorf = 1'b0;
 									ctrl = 1'b0;
 									addorn = 1'b1;
-									// ------------
-									// Alu Decision
 									rori = 1'b1;
-									// -------------
-									// ALU OP
 									outsaida_reg = XOR;
-									// -------------
-									// Destination Decision
 									instype = 1'b0;
-									// -------------
-									// Write back Decision
 									reoral = 1'b1;
-									// -------------
-									// REGFILE Write enable
 									ref_w_ena = 1'b1;
                                     slt_mux = 1'b0;
-									// -------------
-									// Data Mem Enable
 									d_mem_wena = 1'b0;
-									// -------------
                                     zero_ext = 1'b0;
 								end
-						3'd7:	begin
-									// PC PATH
+						6'b100111:	begin // NOR
 									jorf = 1'b0;
 									ctrl = 1'b0;
 									addorn = 1'b1;
-									// ------------
-									// Alu Decision
 									rori = 1'b1;
-									// -------------
-									// ALU OP
 									outsaida_reg = NOR;
-									// -------------
-									// Destination Decision
 									instype = 1'b0;
-									// -------------
-									// Write back Decision
 									reoral = 1'b1;
-									// -------------
-									// REGFILE Write enable
 									ref_w_ena = 1'b1;
                                     slt_mux = 1'b0;
-									// -------------
-									// Data Mem Enable
 									d_mem_wena = 1'b0;
-									// -------------
+                                    zero_ext = 1'b0;
+								end
+						default: begin
+									jorf = 1'b0;
+									ctrl = 1'b0;
+									addorn = 1'b1;
+									rori = 1'b1;
+									outsaida_reg = ADD;
+									instype = 1'b0;
+									reoral = 1'b1;
+									ref_w_ena = 1'b1;
+                                    slt_mux = 1'b0;
+									d_mem_wena = 1'b0;
                                     zero_ext = 1'b0;
 								end
 					endcase
-					end
 				end
+			end
 			else if (opcode[0] == 1'b1)
 				begin
-					// JAL
-					// Jump and Link (GPR 31 <= new_pc) here not
-					// PC PATH
 					jorf = 1'b1;
 					ctrl = 1'b1;
 					addorn = 1'b0;
-					// ------------
-					// Alu Decision
 					rori = 1'b0;
-					// -------------
-					// ALU OP
 					outsaida_reg = 0;
-					// -------------
-					// Destination Decision
 					instype = 1'b0;
-					// -------------
-					// Write back Decision
 					reoral = 1'b0;
-					// -------------
-					// REGFILE Write enable
 					ref_w_ena = 1'b0;
-					// -------------
-					// Data Mem Enable
 					d_mem_wena = 1'b0;
-					// -------------
                     zero_ext = 1'b0;
 				end
 			else
 				begin
-					// J
-					// Jump target
-					// PC PATH
 					jorf = 1'b1;
 					ctrl = 1'b1;
 					addorn = 1'b0;
-					// ------------
-					// Alu Decision
 					rori = 1'b0;
-					// -------------
-					// ALU OP
 					outsaida_reg = 0;
-					// -------------
-					// Destination Decision
 					instype = 1'b0;
-					// -------------
-					// Write back Decision
 					reoral = 1'b0;
-					// -------------
-					// REGFILE Write enable
 					ref_w_ena = 1'b0;
-					// -------------
-					// Data Mem Enable
 					d_mem_wena = 1'b0;
-					// -------------
                     zero_ext = 1'b0;
 				end
 		end

@@ -22,29 +22,33 @@ module alu(
 			out_alu,
 			cout,
 			equal,
-			zero
+			zero,
+			overflow
 			);
 	
 parameter DATA_WIDTH = 16;
 parameter OP_SIZE = 4;
 localparam SHIFT_BITS = (DATA_WIDTH==32) ? 5 : 4;
 
+// MIPS I operations (16 total) mapped to 4-bit control field.
+// Mantidas apenas operações do conjunto MIPS I; operações não-MIPS I removidas.
+// Expansões futuras possíveis (MIPS32r2): ROTR/ROTRV, CLZ/CLO, etc. Não implementadas aqui devido ao limite de 16 códigos.
 `define ADD 4'd0
 `define SUB 4'd1
 `define AND 4'd2
 `define OR 4'd3
 `define XOR 4'd4
-`define L_SH 4'd5
-`define R_SH 4'd6
-`define NAND 4'd7
+`define SLLV 4'd5
+`define SRLV 4'd6
+`define SLT 4'd7
 `define NOR 4'd8
-`define XNOR 4'd9
-`define NOT 4'd10
+`define SLTU 4'd9
+`define SLL 4'd10
 `define COMP 4'd11
-`define SRA 4'd12
-`define SUBO 4'd13
-`define SIG 4'd14
-`define SOME 4'd15
+`define SRAV 4'd12
+`define SUBU 4'd13
+`define ADDU 4'd14
+`define SRL 4'd15
 `define ONE_BIT_ONE 1'b1
 `define ONE_BIT_ZERO 1'b0
 
@@ -55,31 +59,48 @@ localparam SHIFT_BITS = (DATA_WIDTH==32) ? 5 : 4;
     output reg 					cout;
 	output reg 					zero;
 	output reg					equal;
+	output reg                  overflow;
 
 	reg 		[DATA_WIDTH:0]	pre_out;
 	
 always @(rega or regb or control)
 begin
 	equal = (rega == regb) ? 1'b1 : 1'b0;
+	overflow = 1'b0;
+	pre_out = {1'b0, {DATA_WIDTH{1'b0}}};
 	case (control)
-		`ADD  : pre_out = ({1'b0, rega} + {1'b0, regb});
-		`SUB  : pre_out = ({1'b0, rega} - {1'b0, regb});
+		`ADD  : begin
+					pre_out = ({1'b0, rega} + {1'b0, regb});
+					overflow = (~(rega[DATA_WIDTH-1] ^ regb[DATA_WIDTH-1])) & (pre_out[DATA_WIDTH-1] ^ rega[DATA_WIDTH-1]);
+				end
+		`SUB  : begin
+					pre_out = ({1'b0, rega} - {1'b0, regb});
+					overflow = ((rega[DATA_WIDTH-1] ^ regb[DATA_WIDTH-1])) & (pre_out[DATA_WIDTH-1] ^ rega[DATA_WIDTH-1]);
+				end
 		`AND  : pre_out = {1'b0, (rega & regb)};
 		`OR   : pre_out = {1'b0, (rega | regb)};
 		`XOR  : pre_out = {1'b0, (rega ^ regb)};
-		`L_SH : pre_out = {1'b0, (rega << regb[SHIFT_BITS-1:0])};
-		`R_SH : pre_out = {1'b0, (rega >> regb[SHIFT_BITS-1:0])};
-		`NAND : pre_out = {1'b0, ~(rega & regb)};
+		`SLLV : pre_out = {1'b0, (rega << regb[SHIFT_BITS-1:0])};
+		`SRLV : pre_out = {1'b0, (rega >> regb[SHIFT_BITS-1:0])};
+		`SLT  : pre_out = {1'b0, ({ {DATA_WIDTH-1{1'b0}}, ($signed(rega) < $signed(regb)) } )};
 		`NOR  : pre_out = {1'b0, ~(rega | regb)};
-		`XNOR : pre_out = {1'b0, ~(rega ^ regb)};
-		`NOT  : pre_out = {1'b0, ~rega};
-		`COMP : begin
-					pre_out = {1'b0, {DATA_WIDTH{1'b0}}};
+		`SLTU : pre_out = {1'b0, ({ {DATA_WIDTH-1{1'b0}}, (rega < regb) } )};
+		`SLL  : pre_out = {1'b0, (rega << regb[SHIFT_BITS-1:0])};
+		`COMP : pre_out = {1'b0, {DATA_WIDTH{1'b0}}};
+		`SRAV : pre_out = {1'b0, $signed(rega) >>> regb[SHIFT_BITS-1:0]};
+		`SUBU : begin
+					pre_out = ({1'b0, rega} - {1'b0, regb});
+					overflow = 1'b0;
 				end
-		`SRA  : pre_out = {1'b0, $signed(rega) >>> regb[SHIFT_BITS-1:0]};
-		`SUBO : pre_out = ({1'b0, rega} - {{DATA_WIDTH{1'b0}}, 1'b1});
-		`SIG  : pre_out = ({1'b0, (~rega)} + {{DATA_WIDTH{1'b0}}, 1'b1});
-		`SOME : pre_out = ({1'b0, rega} + {1'b0, ~regb});
+		`ADDU : begin
+					pre_out = ({1'b0, rega} + {1'b0, regb});
+					overflow = 1'b0;
+				end
+		`SRL  : pre_out = {1'b0, (rega >> regb[SHIFT_BITS-1:0])};
+		default: begin
+					pre_out = {1'b0, {DATA_WIDTH{1'b0}}};
+					overflow = 1'b0;
+				end
 	endcase
 end
 

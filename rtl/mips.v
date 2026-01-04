@@ -67,6 +67,7 @@ wire [31:0] pc_jump;
 
 // ALU outputs
 wire alu_cout, alu_equal, alu_zero;
+wire alu_overflow;
 // ------------------------------------------------------------------------------
 /*################################################################################
 								Instruction FECH
@@ -181,14 +182,15 @@ assign regstb = rori ? rt_data : sign_exted ;
 // *******************************************************************************
 
 // ********************* ALU *****************************************************
-alu #(.DATA_WITH(32)) ALU (
+alu #(.DATA_WIDTH(32)) ALU (
 		  .rega(rs_data),
 		  .regb(regstb),
 		  .control(aluop),
 		  .out_alu(alu_out),
 		  .cout(alu_cout),
 		  .equal(alu_equal),
-		  .zero(alu_zero)
+		  .zero(alu_zero),
+          .overflow(alu_overflow)
 		);
 // *******************************************************************************
 

@@ -12,6 +12,7 @@ module tb_alu;
     wire cout;
     wire equal;
     wire zero;
+    wire overflow;
 
     // Instantiate the Unit Under Test (UUT)
     alu #(.DATA_WIDTH(32)) uut (
@@ -21,26 +22,26 @@ module tb_alu;
         .out_alu(out_alu), 
         .cout(cout), 
         .equal(equal), 
-        .zero(zero)
+        .zero(zero),
+        .overflow(overflow)
     );
 
-    // ALU Macros (matching alu.v)
     `define ADD 4'd0
     `define SUB 4'd1
     `define AND 4'd2
     `define OR 4'd3
     `define XOR 4'd4
-    `define L_SH 4'd5
-    `define R_SH 4'd6
-    `define NAND 4'd7
+    `define SLLV 4'd5
+    `define SRLV 4'd6
+    `define SLT 4'd7
     `define NOR 4'd8
-    `define XNOR 4'd9
-    `define NOT 4'd10
+    `define SLTU 4'd9
+    `define SLL 4'd10
     `define COMP 4'd11
-    `define SRA 4'd12
-    `define SUBO 4'd13
-    `define SIG 4'd14
-    `define SOME 4'd15
+    `define SRAV 4'd12
+    `define SUBU 4'd13
+    `define ADDU 4'd14
+    `define SRL 4'd15
 
     initial begin
         // Initialize Inputs
@@ -107,76 +108,89 @@ module tb_alu;
         if (out_alu !== 32'h00000000) $display("FAIL: NOR");
         else $display("PASS: NOR");
 
-        // Test 9: XNOR
-        rega = 32'h12345678; regb = 32'h87654321; control = `XNOR;
+        // Test 9: SLLV with mask
+        rega = 32'h00000001; regb = 32'd33; control = `SLLV;
         #10;
-        if (out_alu !== ~(32'h12345678 ^ 32'h87654321)) $display("FAIL: XNOR");
-        else $display("PASS: XNOR");
+        if (out_alu !== 32'h00000002) $display("FAIL: SLLV mask 33->1");
+        else $display("PASS: SLLV mask");
 
-        // Test 10: NOT
-        rega = 32'h00000000; regb = 32'd0; control = `NOT;
+        // Test 10: SRLV with mask
+        rega = 32'h00000002; regb = 32'd33; control = `SRLV;
         #10;
-        if (out_alu !== 32'hFFFFFFFF) $display("FAIL: NOT zero");
-        else $display("PASS: NOT zero");
+        if (out_alu !== 32'h00000001) $display("FAIL: SRLV mask 33->1");
+        else $display("PASS: SRLV mask");
 
-        rega = 32'hFFFFFFFF; regb = 32'd0; control = `NOT;
+        // Test 11: SRAV sign replicate
+        rega = 32'h80000000; regb = 32'd1; control = `SRAV;
         #10;
-        if (out_alu !== 32'h00000000) $display("FAIL: NOT ones");
-        else $display("PASS: NOT ones");
+        if (out_alu !== 32'hC0000000) $display("FAIL: SRAV sign");
+        else $display("PASS: SRAV sign");
 
-        // Test 11: NAND
-        rega = 32'hFFFF0000; regb = 32'h00FF00FF; control = `NAND;
+        // Test 12: SLT
+        rega = 32'hFFFFFFFF; regb = 32'd1; control = `SLT;
         #10;
-        if (out_alu !== ~(32'hFFFF0000 & 32'h00FF00FF)) $display("FAIL: NAND");
-        else $display("PASS: NAND");
+        if (out_alu !== 32'd1) $display("FAIL: SLT");
+        else $display("PASS: SLT");
 
-        // Test 12: L_SH with mask
-        rega = 32'h00000001; regb = 32'd33; control = `L_SH;
+        // Test 13: SLTU
+        rega = 32'd1; regb = 32'd2; control = `SLTU;
         #10;
-        if (out_alu !== 32'h00000002) $display("FAIL: L_SH mask 33->1");
-        else $display("PASS: L_SH mask");
+        if (out_alu !== 32'd1) $display("FAIL: SLTU 1<2");
+        else $display("PASS: SLTU 1<2");
 
-        // Test 13: R_SH with mask
-        rega = 32'h00000002; regb = 32'd33; control = `R_SH;
+        // Test 14: SLTU false
+        rega = 32'hFFFFFFFF; regb = 32'd1; control = `SLTU;
         #10;
-        if (out_alu !== 32'h00000001) $display("FAIL: R_SH mask 33->1");
-        else $display("PASS: R_SH mask");
+        if (out_alu !== 32'd0) $display("FAIL: SLTU FFFF<1");
+        else $display("PASS: SLTU FFFF<1");
 
-        // Test 14: SRA sign replicate
-        rega = 32'h80000000; regb = 32'd1; control = `SRA;
-        #10;
-        if (out_alu !== 32'hC0000000) $display("FAIL: SRA sign");
-        else $display("PASS: SRA sign");
-
-        // Test 15: SUBO
-        rega = 32'd5; regb = 32'd0; control = `SUBO;
-        #10;
-        if (out_alu !== 32'd4) $display("FAIL: SUBO");
-        else $display("PASS: SUBO");
-
-        // Test 16: SIG
-        rega = 32'd5; regb = 32'd0; control = `SIG;
-        #10;
-        if (out_alu !== 32'hFFFFFFFB) $display("FAIL: SIG");
-        else $display("PASS: SIG");
-
-        // Test 17: SOME
-        rega = 32'd7; regb = 32'd2; control = `SOME;
-        #10;
-        if (out_alu !== 32'd4) $display("FAIL: SOME");
-        else $display("PASS: SOME");
-
-        // Test 18: ADD carry-out
+        // Test 15: ADDU carry-out
         rega = 32'hFFFFFFFF; regb = 32'h00000001; control = `ADD;
         #10;
         if (out_alu !== 32'h00000000 || cout !== 1'b1) $display("FAIL: ADD carry-out");
         else $display("PASS: ADD carry-out");
 
-        // Test 19: SUB borrow-out
+        // Test 16: SUBU borrow-out
         rega = 32'h00000000; regb = 32'h00000001; control = `SUB;
         #10;
         if (out_alu !== 32'hFFFFFFFF || cout !== 1'b1) $display("FAIL: SUB borrow-out");
         else $display("PASS: SUB borrow-out");
+
+        // Test 17: SLL immediate
+        rega = 32'h00000001; regb = 32'd1; control = `SLL;
+        #10;
+        if (out_alu !== 32'h00000002) $display("FAIL: SLL imm");
+        else $display("PASS: SLL imm");
+
+        // Test 18: SRL immediate
+        rega = 32'h00000002; regb = 32'd1; control = `SRL;
+        #10;
+        if (out_alu !== 32'h00000001) $display("FAIL: SRL imm");
+        else $display("PASS: SRL imm");
+
+        // Test 19: ADD signed overflow
+        rega = 32'h7FFFFFFF; regb = 32'h00000001; control = `ADD;
+        #10;
+        if (overflow !== 1'b1) $display("FAIL: ADD signed overflow");
+        else $display("PASS: ADD signed overflow");
+
+        // Test 20: SUB signed overflow
+        rega = 32'h80000000; regb = 32'h00000001; control = `SUB;
+        #10;
+        if (overflow !== 1'b1) $display("FAIL: SUB signed overflow");
+        else $display("PASS: SUB signed overflow");
+
+        // Test 21: ADDU no overflow
+        rega = 32'h7FFFFFFF; regb = 32'h00000001; control = `ADDU;
+        #10;
+        if (overflow !== 1'b0) $display("FAIL: ADDU overflow set");
+        else $display("PASS: ADDU no overflow");
+
+        // Test 22: SUBU no overflow
+        rega = 32'h80000000; regb = 32'h00000001; control = `SUBU;
+        #10;
+        if (overflow !== 1'b0) $display("FAIL: SUBU overflow set");
+        else $display("PASS: SUBU no overflow");
         
         $finish;
     end
