@@ -18,6 +18,7 @@
 module decoder_mips (
 						opcode,
 						funct,
+                        sa,
 						rt_code,
 						equalrsrt,
 						rsmaior,
@@ -28,11 +29,16 @@ module decoder_mips (
 						rt,
 						slt_mux,
 						zero_ext,
-						jr_ctrl
+						jr_ctrl,
+                        shift_imm,
+                        shift_var,
+                        shamt_ext,
+                        jal
 					);
 
 input	[5:0]	opcode;
 input	[5:0]	funct; // MIPS standard: 6 bits
+input   [4:0]   sa;
 input   [4:0]   rt_code; // rt field for REGIMM (BLTZ/BGEZ)
 input           equalrsrt;
 input           rsmaior;
@@ -44,6 +50,10 @@ output reg [31:0] rt; // Direct output to register file/datapath
 output reg slt_mux; // Selects Decoder RT output for Writeback
 output reg zero_ext; // Selects zero-extend for logical immediates (ANDI/ORI/XORI)
 output reg jr_ctrl; // Selects PC = rs for JR/JALR
+output          shift_imm;
+output          shift_var;
+output [31:0]   shamt_ext;
+output          jal;
 
 // Internal Control Signals
 reg jorf;
@@ -58,6 +68,10 @@ reg [3:0] outsaida_reg;
 
 assign ctrol = {jorf, ctrl, addorn, rori, instype, reoral, ref_w_ena, d_mem_wena};
 assign outsaida = outsaida_reg;
+assign shift_imm = (opcode == 6'b000000) && ((funct == 6'b000000) || (funct == 6'b000010) || (funct == 6'b000011));
+assign shift_var = (opcode == 6'b000000) && ((funct == 6'b000100) || (funct == 6'b000110) || (funct == 6'b000111));
+assign shamt_ext = {27'd0, sa};
+assign jal = (opcode == 6'b000011);
 
 // ALU Opcode Parameters (Matching alu.v MIPS I set)
 parameter ADD  = 4'd0;

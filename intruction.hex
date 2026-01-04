@@ -96,3 +96,19 @@ ac020004
 0022C02A
 0041C82B
 00000000
+// ============ NEW: Immediate shifts and JAL tests ============
+// SLL $6, $5, 1       -> $6 = $5 << 1 = 30
+00053040
+// SRL $6, $5, 1       -> $6 = $5 >> 1 = 7
+00053042
+// SRA $6, $5, 1       -> $6 = $5 >>> 1 = 7 (since $5=15 is positive)
+00053043
+// JAL to 60           -> $31 = link (PC+1), PC = 60
+0C000078
+// filler NOPs
+00000000
+00000000
+00000000
+// Target 120:
+// ensure some activity at target (ADDI $30, $0, 3)
+201E0003

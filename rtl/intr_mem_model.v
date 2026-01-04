@@ -26,14 +26,14 @@ module instr_mem (
 //parameter declarations
 parameter MEM_WORD = 32;
 parameter ADDR_WIDTH = 32;
-parameter MEM_DEPTH = 64;
+parameter MEM_DEPTH = 256;
 
 //Input and output declarations
 input [ADDR_WIDTH-1:0] addr;
 output reg [MEM_WORD-1:0] data;
 
 //the register memory
-reg [ADDR_WIDTH-1:0]MEM2[0:MEM_DEPTH];
+reg [MEM_WORD-1:0]MEM2[0:MEM_DEPTH-1];
 
 initial $readmemh("intruction.hex",MEM2);
 

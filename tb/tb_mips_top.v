@@ -9,6 +9,7 @@ module tb_mips_top;
     // Inputs
     reg clk;
     reg reset;
+    reg [31:0] pc_before_jal;
     
     // Test counters
     integer pass_count = 0;
@@ -41,6 +42,41 @@ module tb_mips_top;
                 $display("[FAIL] Test %0d: %s - Expected: %h, Got: %h", 
                          test_num, instr_name, expected, uut.writeback);
                 fail_count = fail_count + 1;
+            end
+        end
+    endtask
+    
+    task wait_opcode_with_timeout;
+        input [31:0] limit;
+        input [5:0] opcode;
+        output reg ok;
+        integer i;
+        begin : WAITLOOP2
+            ok = 0;
+            repeat(limit) begin
+                @(posedge clk); #1;
+                if (uut.instruction[31:26] == opcode) begin
+                    ok = 1;
+                    disable WAITLOOP2;
+                end
+            end
+        end
+    endtask
+    
+    task wait_opcode_funct_with_timeout;
+        input [31:0] limit;
+        input [5:0] opcode;
+        input [5:0] funct;
+        output reg ok;
+        integer i;
+        begin : WAITLOOP
+            ok = 0;
+            repeat(limit) begin
+                @(posedge clk); #1;
+                if ((uut.instruction[31:26] == opcode) && (uut.instruction[5:0] == funct)) begin
+                    ok = 1;
+                    disable WAITLOOP;
+                end
             end
         end
     endtask
@@ -105,7 +141,7 @@ module tb_mips_top;
         $dumpfile("tb_mips_top.vcd");
         $dumpvars(0, tb_mips_top);
         $display("PC/instr trace:");
-        $monitor("t=%0t pc=%0d instr=%h rs=%h rt=%h regb=%h wb=%h alu=%h dest=%0d wena=%b jorf=%b ctrl=%b", $time, uut.program_counter, uut.instruction, uut.rs_data, uut.rt_data, uut.regstb, uut.writeback, uut.alu_out, uut.dest, uut.ref_w_ena, uut.jorf, uut.ctrol_bus);
+        $monitor("t=%0t pc=%0d instr=%h rs=%h rt=%h regb=%h wb=%h alu=%h dest=%0d wena=%b jal=%b jorf=%b ctrl=%b", $time, uut.program_counter, uut.instruction, uut.rs_data, uut.rt_data, uut.regstb, uut.writeback, uut.alu_out, uut.dest, uut.ref_w_ena, uut.jal, uut.jorf, uut.ctrol_bus);
         
         $display("=================================================================");
         $display("       MIPS Processor Comprehensive Testbench");
@@ -121,6 +157,7 @@ module tb_mips_top;
         reset = 0;
         #20;
         reset = 1;
+        pc_before_jal = 32'd0;
         @(posedge clk); // Wait for first instruction
         
         // ============ TEST ADDI INSTRUCTIONS ============
@@ -247,6 +284,21 @@ module tb_mips_top;
         @(posedge clk); #1;
         @(negedge clk); #1;
         check_result(32'h00000000, "SLTU $25=$2<$1");
+
+        // ============ TEST SLL/SRL/SRA (Immediate shamt) ============
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        check_result(32'h0000001E, "SLL $6,$5,1 (15<<1=30)");
+        @(posedge clk); #1;
+        check_result(32'h00000007, "SRL $6,$5,1 (15>>1=7)");
+        @(posedge clk); #1;
+        check_result(32'h00000007, "SRA $6,$5,1 (15>>>1=7)");
+
+        // ============ TEST JAL ============
+        pc_before_jal = uut.program_counter;
+        @(posedge clk); #1;
+        check_reg(31, pc_before_jal + 32'd1, "JAL link writeback to $31");
+        check_value(uut.program_counter, 32'd120, "JAL jumped to target 120");
 
         // ============ SUMMARY ============
         $display("\n=================================================================");

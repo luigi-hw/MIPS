@@ -38,6 +38,7 @@ wire [31:0]sign_exted;
 wire [31:0]rs_data;
 wire [31:0]rt_data;
 wire [31:0]regstb;
+wire [31:0]rega_in;
 wire [31:0]alu_out;
 wire [31:0]readmem;
 reg [31:0]writeback;
@@ -131,7 +132,7 @@ instruction 32 bits
 regfile #(.MEM_WIDTH(32)) REG_FILE (
 				  .clk(clock), 
 				  .w_data(writeback_comb), // mux to UC
-				  .w_ena(ref_w_ena), 
+				  .w_ena(ref_w_ena_final), 
 				  .r1_data(rs_data), 
 				  .r2_data(rt_data), 
 				  .w_addr(dest),
@@ -148,6 +149,7 @@ assign sign_exted = (instruction[31:26] == 6'b001111) ? {instruction[15:0], 16'd
 decoder_mips INSTR_DEC (
 						.opcode(instruction[31:26]),
 						.funct(instruction[5:0]),
+                        .sa(instruction[10:6]),
 						.rt_code(instruction[20:16]),
 						.equalrsrt(equalrsrt),
 						.rsmaior(rsmaior),
@@ -158,7 +160,11 @@ decoder_mips INSTR_DEC (
 						.rt(uc_data),
 						.slt_mux(slt_mux),
 						.zero_ext(zero_ext),
-						.jr_ctrl(jr_ctrl)
+						.jr_ctrl(jr_ctrl),
+                        .shift_imm(is_shift_special_imm),
+                        .shift_var(is_shift_special_var),
+                        .shamt_ext(shamt_ext),
+                        .jal(jal)
 						);
 // *******************************************************************************
 // ****************** JUMP RESOLUTION ********************************************
@@ -176,14 +182,25 @@ ADD
 
 ###################################################################################*/
 
+// ********************* Shift Detection *****************************************
+// SPECIAL immediate shifts: SLL(000000), SRL(000010), SRA(000011)
+// SPECIAL variable shifts: SLLV(000100), SRLV(000110), SRAV(000111)
+wire is_shift_special_imm;
+wire is_shift_special_var;
+wire [31:0] shamt_ext;
+// *******************************************************************************
+
 // *************** MUX register B of ALU *****************************************
 // ***************** RT or Sign_extended *****************************************
-assign regstb = rori ? rt_data : sign_exted ;
+assign regstb = is_shift_special_imm ? shamt_ext :
+                (is_shift_special_var ? rs_data :
+                 (rori ? rt_data : sign_exted));
+assign rega_in = (is_shift_special_imm || is_shift_special_var) ? rt_data : rs_data;
 // *******************************************************************************
 
 // ********************* ALU *****************************************************
 alu #(.DATA_WIDTH(32)) ALU (
-		  .rega(rs_data),
+		  .rega(rega_in),
 		  .regb(regstb),
 		  .control(aluop),
 		  .out_alu(alu_out),
@@ -195,7 +212,8 @@ alu #(.DATA_WIDTH(32)) ALU (
 // *******************************************************************************
 
 // *************** Destination Resolution ****************************************
-assign dest = instype ? instruction[20:16] : instruction[15:11] ;
+wire jal;
+assign dest = jal ? 5'd31 : (instype ? instruction[20:16] : instruction[15:11]) ;
 // *******************************************************************************
 
 // ********************* PC Calculation and decision *****************************
@@ -259,7 +277,14 @@ Mux
 
 // ******************* Write Back Decision ***************************************
 // Writeback Mux - SLT uses decoder output, otherwise ALU or Memory
-assign writeback_comb = slt_mux ? uc_data : (reoral ? alu_out : readmem);
+assign writeback_comb = jal ? new_pc : (slt_mux ? uc_data : (reoral ? alu_out : readmem));
+
+// Overflow trap gating for signed ADD/SUB/ADDI: disable writeback on overflow
+wire signed_op_add_sub = (instruction[31:26] == 6'b000000) &&
+                         ((instruction[5:0] == 6'b100000) || (instruction[5:0] == 6'b100010));
+wire signed_op_addi    = (instruction[31:26] == 6'b001000);
+wire ovf_trap_active   = (alu_overflow && (signed_op_add_sub || signed_op_addi));
+wire ref_w_ena_final   = (ovf_trap_active ? 1'b0 : (ref_w_ena || jal));
 
 always @(posedge clock or negedge reset)
 begin
