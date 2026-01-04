@@ -27,6 +27,7 @@ module alu(
 	
 parameter DATA_WIDTH = 16;
 parameter OP_SIZE = 4;
+localparam SHIFT_BITS = (DATA_WIDTH==32) ? 5 : 4;
 
 `define ADD 4'd0
 `define SUB 4'd1
@@ -44,8 +45,6 @@ parameter OP_SIZE = 4;
 `define SUBO 4'd13
 `define SIG 4'd14
 `define SOME 4'd15
-`define PRE 17
-`define PRE_ZERO 17'd0
 `define ONE_BIT_ONE 1'b1
 `define ONE_BIT_ZERO 1'b0
 
@@ -57,40 +56,38 @@ parameter OP_SIZE = 4;
 	output reg 					zero;
 	output reg					equal;
 
-	reg 		[DATA_WIDTH+1:0]	pre_out;
+	reg 		[DATA_WIDTH:0]	pre_out;
 	
 always @(rega or regb or control)
 begin
+	equal = (rega == regb) ? 1'b1 : 1'b0;
 	case (control)
-		`ADD  : pre_out = rega + regb; //0
-		`SUB  : pre_out = rega - regb; //1
-		`AND  : pre_out = rega & regb; //2
-		`OR   : pre_out = rega | regb; //3
-		`XOR  : pre_out = rega ^ regb; //4
-		`L_SH : pre_out = rega << regb; //5
-		`R_SH : pre_out = rega >> regb; //6
-		`NAND : pre_out = ~(rega & regb); //7
-		`NOR  : pre_out = ~(rega | regb); //8
-		`XNOR : pre_out = ~(rega ^ regb); //9
-		`NOT  : pre_out[DATA_WIDTH-1:0] = ~rega; //10
-		`COMP : begin //11
-					if ( rega == regb )
-						equal = 1'b1;
-					else
-						equal = 1'b0;
+		`ADD  : pre_out = ({1'b0, rega} + {1'b0, regb});
+		`SUB  : pre_out = ({1'b0, rega} - {1'b0, regb});
+		`AND  : pre_out = {1'b0, (rega & regb)};
+		`OR   : pre_out = {1'b0, (rega | regb)};
+		`XOR  : pre_out = {1'b0, (rega ^ regb)};
+		`L_SH : pre_out = {1'b0, (rega << regb[SHIFT_BITS-1:0])};
+		`R_SH : pre_out = {1'b0, (rega >> regb[SHIFT_BITS-1:0])};
+		`NAND : pre_out = {1'b0, ~(rega & regb)};
+		`NOR  : pre_out = {1'b0, ~(rega | regb)};
+		`XNOR : pre_out = {1'b0, ~(rega ^ regb)};
+		`NOT  : pre_out = {1'b0, ~rega};
+		`COMP : begin
+					pre_out = {1'b0, {DATA_WIDTH{1'b0}}};
 				end
-		`SRA  : pre_out = $signed(rega) >>> regb; //12
-		`SUBO : pre_out = rega - 16'd1; //13
-		`SIG  : pre_out = (~rega) + 16'd1; //14
-		`SOME : pre_out = rega + (~regb); //15
+		`SRA  : pre_out = {1'b0, $signed(rega) >>> regb[SHIFT_BITS-1:0]};
+		`SUBO : pre_out = ({1'b0, rega} - {{DATA_WIDTH{1'b0}}, 1'b1});
+		`SIG  : pre_out = ({1'b0, (~rega)} + {{DATA_WIDTH{1'b0}}, 1'b1});
+		`SOME : pre_out = ({1'b0, rega} + {1'b0, ~regb});
 	endcase
 end
 
 always @(pre_out)
 begin
 		out_alu = pre_out[DATA_WIDTH-1:0];
-		cout = pre_out[`PRE];
-		if (pre_out == `PRE_ZERO)
+		cout = pre_out[DATA_WIDTH];
+		if (out_alu == {DATA_WIDTH{1'b0}})
 			zero = `ONE_BIT_ONE;
 		else
 			zero = `ONE_BIT_ZERO;
