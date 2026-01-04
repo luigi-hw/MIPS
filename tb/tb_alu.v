@@ -14,7 +14,7 @@ module tb_alu;
     wire zero;
 
     // Instantiate the Unit Under Test (UUT)
-    alu #(.DATA_WITH(32)) uut (
+    alu #(.DATA_WIDTH(32)) uut (
         .rega(rega), 
         .regb(regb), 
         .control(control), 

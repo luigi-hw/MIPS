@@ -12,11 +12,6 @@
 //
 // Dependencies: 
 //
-// Revision 0.05 - Altera��es menores
-// Revision 0.04 - Adapta��o para datapath final
-// Revision 0.03 - Parametriza��o
-// Revision 0.02 -Escrita do codigo
-// Revision 0.01 - File Created
 // Additional Comments: 
 //
 //////////////////////////////////////////////////////////////////////////////////
@@ -30,7 +25,7 @@ module alu(
 			zero
 			);
 	
-parameter DATA_WITH = 16;
+parameter DATA_WIDTH = 16;
 parameter OP_SIZE = 4;
 
 `define ADD 4'd0
@@ -54,15 +49,15 @@ parameter OP_SIZE = 4;
 `define ONE_BIT_ONE 1'b1
 `define ONE_BIT_ZERO 1'b0
 
-    input 		[DATA_WITH-1:0] rega;
-    input 		[DATA_WITH-1:0] regb;
+    input 		[DATA_WIDTH-1:0] rega;
+    input 		[DATA_WIDTH-1:0] regb;
 	input 		[OP_SIZE-1:0] 	control;
-    output reg 	[DATA_WITH-1:0]	out_alu;
+    output reg 	[DATA_WIDTH-1:0]	out_alu;
     output reg 					cout;
 	output reg 					zero;
 	output reg					equal;
 
-	reg 		[DATA_WITH+1:0]	pre_out;
+	reg 		[DATA_WIDTH+1:0]	pre_out;
 	
 always @(rega or regb or control)
 begin
@@ -77,7 +72,7 @@ begin
 		`NAND : pre_out = ~(rega & regb); //7
 		`NOR  : pre_out = ~(rega | regb); //8
 		`XNOR : pre_out = ~(rega ^ regb); //9
-		`NOT  : pre_out[DATA_WITH-1:0] = ~rega; //10
+		`NOT  : pre_out[DATA_WIDTH-1:0] = ~rega; //10
 		`COMP : begin //11
 					if ( rega == regb )
 						equal = 1'b1;
@@ -93,7 +88,7 @@ end
 
 always @(pre_out)
 begin
-		out_alu = pre_out[DATA_WITH-1:0];
+		out_alu = pre_out[DATA_WIDTH-1:0];
 		cout = pre_out[`PRE];
 		if (pre_out == `PRE_ZERO)
 			zero = `ONE_BIT_ONE;

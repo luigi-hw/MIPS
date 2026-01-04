@@ -113,6 +113,16 @@ def _strip_inline_comment(s: str) -> str:
     return s[:idx]
 
 
+def _escape_html(s: str) -> str:
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
 def instrument_verilog_file(src_path: Path, dst_path: Path, *, probe_start_id: int) -> tuple[list[Probe], int]:
     src_lines = src_path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
 
@@ -130,6 +140,11 @@ def instrument_verilog_file(src_path: Path, dst_path: Path, *, probe_start_id: i
         probe_id = probe_id_in
         chunk_out: list[str] = []
         chunk_probes: list[Probe] = []
+        
+        # Track artificial 'begin' blocks opened for 'else case' or 'if case'
+        # Maps case_depth -> number of 'end's to insert after endcase at that depth
+        pending_ends: dict[int, int] = {}
+
         used_probe_names: list[str] = []
 
         def new_probe(kind: str, abs_line_no: int, detail: str) -> str:
@@ -150,10 +165,49 @@ def instrument_verilog_file(src_path: Path, dst_path: Path, *, probe_start_id: i
         if port_end_idx is None:
             port_end_idx = 0
 
-        chunk_out.extend(chunk_lines[: port_end_idx + 1])
+        # Find safe insertion point for declarations (after params/ports, before procedures)
+        insertion_idx = port_end_idx + 1
+        
+        # Keywords that indicate we must stop scanning and insert before them
+        _STOP_KEYWORDS = (
+            "always", "initial", "assign", "module", "primitive", 
+            "task", "function", "generate", "endmodule"
+        )
+        # Keywords that allow us to continue (declarations)
+        _DECL_KEYWORDS = (
+            "parameter", "localparam", "defparam",
+            "input", "output", "inout",
+            "reg", "wire", "integer", "real", "time", "genvar",
+            "tri", "tri0", "tri1", "wand", "wor", "event"
+        )
+
+        scan_i = insertion_idx
+        while scan_i < len(chunk_lines):
+            raw_s = chunk_lines[scan_i]
+            s_stripped = _strip_inline_comment(raw_s).strip()
+            if not s_stripped:
+                scan_i += 1
+                continue
+            
+            # Check for stop keywords
+            first_word = s_stripped.split()[0] if s_stripped else ""
+            # Handle cases like "always @..." or "assign x = ..."
+            if first_word in _STOP_KEYWORDS:
+                break
+                
+            # If it's a declaration, we can skip past it (insert after)
+            if first_word in _DECL_KEYWORDS:
+                insertion_idx = scan_i + 1
+            
+            # If we see logic-like symbols not in a declaration context, maybe stop?
+            # But relying on keywords is safer for top-level module items.
+            
+            scan_i += 1
+
+        chunk_out.extend(chunk_lines[: insertion_idx])
         chunk_out.append("__COV_DECLS__\n")
 
-        i = port_end_idx + 1
+        i = insertion_idx
 
         in_proc = False
         proc_depth = 0
@@ -181,11 +235,56 @@ def instrument_verilog_file(src_path: Path, dst_path: Path, *, probe_start_id: i
                 chunk_out.append(raw)
                 break
 
+            if (not in_proc) and stripped.startswith("assign"):
+                indent = indent_of(raw)
+                body_indent = child_indent(indent)
+                j = i
+                stmt_lines: list[tuple[int, str]] = []
+                while j < len(chunk_lines):
+                    rj = chunk_lines[j]
+                    sj = _strip_inline_comment(rj).strip()
+                    stmt_lines.append((start_line_no + j, rj))
+                    if ";" in sj:
+                        break
+                    j += 1
+                line_probe_names: list[str] = []
+                for abs_ln, rj in stmt_lines:
+                    if _strip_inline_comment(rj).strip():
+                        line_probe_names.append(new_probe("line", abs_ln, "assign"))
+                for _abs_ln, rj in stmt_lines:
+                    chunk_out.append(rj)
+                first_code = _strip_inline_comment(stmt_lines[0][1]).strip()
+                m_lhs = re.match(r"^\s*assign\s+(.*?)\s*=", first_code)
+                lhs_expr = m_lhs.group(1) if m_lhs else ""
+                toks = re.findall(r"[A-Za-z_][A-Za-z0-9_$]*", lhs_expr)
+                seen: set[str] = set()
+                uniq_toks: list[str] = []
+                for t in toks:
+                    if t not in seen:
+                        seen.add(t)
+                        uniq_toks.append(t)
+                if uniq_toks:
+                    ev = " or ".join(uniq_toks)
+                    chunk_out.append(f"{indent}always @({ev}) begin\n")
+                    for pn in line_probe_names:
+                        chunk_out.append(emit_probe_stmt(body_indent, pn))
+                    chunk_out.append(f"{indent}end\n")
+                else:
+                    chunk_out.append(f"{indent}initial begin\n")
+                    for pn in line_probe_names:
+                        chunk_out.append(emit_probe_stmt(body_indent, pn))
+                    chunk_out.append(f"{indent}end\n")
+                i = j + 1
+                continue
+
             if _RE_ALWAYS_OR_INITIAL.match(raw):
                 chunk_out.append(raw)
                 in_proc = True
                 proc_depth = 0
                 awaiting_proc_begin = True
+                if re.search(r"\bbegin\b", stripped) is not None:
+                    proc_depth = 1
+                    awaiting_proc_begin = False
                 i += 1
                 continue
 
@@ -225,9 +324,20 @@ def instrument_verilog_file(src_path: Path, dst_path: Path, *, probe_start_id: i
                     continue
 
                 if _RE_ENDCASE.match(stripped):
+                    # We do NOT emit a probe before endcase because it would be inside the case statement
+                    # (between the last item and endcase), which is invalid syntax in Verilog.
+                    # line_probe = new_probe("line", abs_line, "endcase")
+                    # chunk_out.append(emit_probe_stmt(indent_of(raw), line_probe))
+                    
+                    chunk_out.append(raw)
                     if case_depth > 0:
                         case_depth -= 1
-                    chunk_out.append(raw)
+                    
+                    pe = pending_ends.get(case_depth, 0)
+                    if pe > 0:
+                        chunk_out.append(f"{indent_of(raw)}end\n" * pe)
+                        pending_ends[case_depth] = 0
+
                     i += 1
                     continue
 
@@ -237,10 +347,36 @@ def instrument_verilog_file(src_path: Path, dst_path: Path, *, probe_start_id: i
                     continue
 
                 if _RE_ELSE.match(stripped):
+                    if re.search(r"\bbegin\b", stripped) is not None:
+                        pending_else_branch_probe = new_probe("branch", abs_line, "else")
+                        chunk_out.append(raw)
+                        i += 1
+                        continue
                     nxt = next_stmt_index(i + 1)
                     if nxt is not None:
                         nxt_s = _strip_inline_comment(chunk_lines[nxt]).strip()
-                        if nxt_s and not _RE_BEGIN.match(nxt_s):
+                        if nxt_s and not _RE_BEGIN.match(nxt_s) and not _RE_IF.match(nxt_s):
+                            if _RE_CASE.match(nxt_s):
+                                raw_no_nl = raw[:-1] if raw.endswith("\n") else raw
+                                if "//" in raw_no_nl:
+                                    code_part, comment_part = raw_no_nl.split("//", 1)
+                                    comment_part = "//" + comment_part
+                                else:
+                                    code_part, comment_part = raw_no_nl, ""
+
+                                br = new_probe("branch", abs_line, "else")
+                                indent = indent_of(raw)
+                                chunk_out.append(f"{code_part.rstrip()} begin {comment_part}\n" if comment_part else f"{code_part.rstrip()} begin\n")
+                                body_indent = child_indent(indent)
+                                chunk_out.append(emit_probe_stmt(body_indent, br))
+                                
+                                pending_ends[case_depth] = pending_ends.get(case_depth, 0) + 1
+                                
+                                # Do NOT advance i to nxt. Let the loop handle the case statement.
+                                # But we MUST consume the else line.
+                                i += 1
+                                continue
+                            
                             raw_no_nl = raw[:-1] if raw.endswith("\n") else raw
                             if "//" in raw_no_nl:
                                 code_part, comment_part = raw_no_nl.split("//", 1)
@@ -274,6 +410,25 @@ def instrument_verilog_file(src_path: Path, dst_path: Path, *, probe_start_id: i
                         if nxt is not None:
                             nxt_s = _strip_inline_comment(chunk_lines[nxt]).strip()
                             if nxt_s and not _RE_BEGIN.match(nxt_s) and not _RE_ELSE.match(nxt_s):
+                                if _RE_CASE.match(nxt_s):
+                                    raw_no_nl = raw[:-1] if raw.endswith("\n") else raw
+                                    if "//" in raw_no_nl:
+                                        code_part, comment_part = raw_no_nl.split("//", 1)
+                                        comment_part = "//" + comment_part
+                                    else:
+                                        code_part, comment_part = raw_no_nl, ""
+
+                                    br = new_probe("branch", abs_line, "if_true")
+                                    indent = indent_of(raw)
+                                    chunk_out.append(f"{code_part.rstrip()} begin {comment_part}\n" if comment_part else f"{code_part.rstrip()} begin\n")
+                                    body_indent = child_indent(indent)
+                                    chunk_out.append(emit_probe_stmt(body_indent, br))
+                                    
+                                    pending_ends[case_depth] = pending_ends.get(case_depth, 0) + 1
+                                    
+                                    i += 1
+                                    continue
+                                
                                 raw_no_nl = raw[:-1] if raw.endswith("\n") else raw
                                 if "//" in raw_no_nl:
                                     code_part, comment_part = raw_no_nl.split("//", 1)
@@ -337,6 +492,7 @@ def instrument_verilog_file(src_path: Path, dst_path: Path, *, probe_start_id: i
                     if stripped.endswith("begin") or stripped.endswith("begin;") or " begin" in stripped:
                         chunk_out.append(raw)
                         chunk_out.append(emit_probe_stmt(child_indent(indent_of(raw)), probe_name))
+                        proc_depth += 1
                     else:
                         pending_case_item_probe = probe_name
                         chunk_out.append(raw)
@@ -368,10 +524,6 @@ def instrument_verilog_file(src_path: Path, dst_path: Path, *, probe_start_id: i
         decl_lines: list[str] = []
         if used_probe_names:
             decl_lines.extend([f"{mod_indent}reg {p};\n" for p in used_probe_names])
-            decl_lines.append(f"{mod_indent}initial begin\n")
-            for p in used_probe_names:
-                decl_lines.append(f"{child_indent(mod_indent)}{p} = 1'b0;\n")
-            decl_lines.append(f"{mod_indent}end\n")
 
         chunk_out = [ln if ln != "__COV_DECLS__\n" else "".join(decl_lines) for ln in chunk_out]
         return chunk_out, chunk_probes, probe_id
@@ -464,6 +616,93 @@ def _pct(a: int, b: int) -> str:
     return f"{(100.0 * a / b):.2f}%"
 
 
+def build_line_coverage(
+    *,
+    repo_root: Path,
+    rtl_files: list[Path],
+    probes: list[Probe],
+    hit_probe_names: set[str],
+) -> dict[str, dict[int, str]]:
+    status_by_file: dict[str, dict[int, str]] = {}
+    probe_by_file_line: dict[str, dict[int, set[str]]] = {}
+
+    for p in probes:
+        probe_by_file_line.setdefault(p.file, {}).setdefault(p.line, set()).add(p.name)
+
+    for f in rtl_files:
+        fp = str(f.resolve())
+        lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        per_line: dict[int, str] = {}
+        per_line_probes = probe_by_file_line.get(fp, {})
+        for idx in range(1, len(lines) + 1):
+            ps = per_line_probes.get(idx)
+            if not ps:
+                per_line[idx] = "na"
+            else:
+                per_line[idx] = "cov" if any(pn in hit_probe_names for pn in ps) else "uncov"
+        status_by_file[fp] = per_line
+
+    return status_by_file
+
+
+def render_html_report(
+    *,
+    repo_root: Path,
+    rtl_files: list[Path],
+    file_summaries: dict[str, dict[str, object]],
+    line_cov: dict[str, dict[int, str]],
+) -> str:
+    parts: list[str] = []
+    parts.append("<!doctype html>")
+    parts.append("<html><head><meta charset='utf-8'>")
+    parts.append(
+        "<style>"
+        "body{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:16px;}"
+        "h1,h2{margin:0 0 10px 0;}"
+        ".legend span{display:inline-block;padding:2px 8px;border-radius:6px;margin-right:8px;font-family:ui-monospace,Consolas,monospace;}"
+        ".cov{background:#e6ffed;}"
+        ".uncov{background:#ffeef0;}"
+        ".na{background:#f6f8fa;color:#6a737d;}"
+        "pre{margin:0;}"
+        ".file{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;padding:12px;}"
+        ".src{border:1px solid #d0d7de;border-radius:10px;overflow:auto;}"
+        ".ln{display:inline-block;width:6ch;text-align:right;padding-right:1ch;color:#57606a;user-select:none;}"
+        ".code{white-space:pre;}"
+        "</style>"
+    )
+    parts.append("</head><body>")
+    parts.append("<h1>RTL line/branch coverage</h1>")
+    parts.append("<div class='legend'>")
+    parts.append("<span class='cov'>coberta</span>")
+    parts.append("<span class='uncov'>não coberta</span>")
+    parts.append("<span class='na'>n/a</span>")
+    parts.append("</div>")
+
+    for f in rtl_files:
+        fp = str(f.resolve())
+        rel = str(f.relative_to(repo_root)) if repo_root in f.resolve().parents else fp
+        agg = file_summaries.get(fp, {})
+        lt = int(agg.get("lines_total", 0))
+        lh = int(agg.get("lines_hit", 0))
+        bt = int(agg.get("branches_total", 0))
+        bh = int(agg.get("branches_hit", 0))
+        parts.append("<div class='file'>")
+        parts.append(f"<h2>{_escape_html(rel)}</h2>")
+        parts.append(f"<div>lines {lh}/{lt} ({_pct(lh, lt)}), branches {bh}/{bt} ({_pct(bh, bt)})</div>")
+        parts.append("<div class='src'><pre>")
+        src_lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        statuses = line_cov.get(fp, {})
+        for idx, line in enumerate(src_lines, start=1):
+            st = statuses.get(idx, "na")
+            parts.append(
+                f"<span class='{st}'><span class='ln'>{idx}</span><span class='code'>{_escape_html(line)}</span></span>\n"
+            )
+        parts.append("</pre></div></div>")
+
+    parts.append("</body></html>")
+    return "\n".join(parts)
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         description="Line/branch coverage por instrumentação RTL + VCD (sem Verilator).",
@@ -475,6 +714,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--json", default="", help="Grava relatório JSON em arquivo")
     ap.add_argument("--top-uncovered", type=int, default=50, help="Máximo de itens uncovered por arquivo")
     ap.add_argument("--work", default="", help="Diretório de trabalho (mantém RTL instrumentado)")
+    ap.add_argument("--html", default="", help="Grava relatório HTML em arquivo")
     args = ap.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parent
@@ -534,6 +774,31 @@ def main(argv: list[str]) -> int:
         report = build_report(all_probes, hit_probe_names)
 
         files: dict[str, dict[str, object]] = report["files"]  # type: ignore[assignment]
+        line_cov = build_line_coverage(
+            repo_root=repo_root,
+            rtl_files=rtl_files,
+            probes=all_probes,
+            hit_probe_names=hit_probe_names,
+        )
+        for f in rtl_files:
+            fp = str(f.resolve())
+            statuses = line_cov.get(fp, {})
+            lines_total = sum(1 for st in statuses.values() if st != "na")
+            lines_hit = sum(1 for st in statuses.values() if st == "cov")
+            agg = files.setdefault(
+                fp,
+                {
+                    "lines_total": 0,
+                    "lines_hit": 0,
+                    "branches_total": 0,
+                    "branches_hit": 0,
+                    "uncovered_lines": [],
+                    "uncovered_branches": [],
+                },
+            )
+            agg["lines_total"] = lines_total
+            agg["lines_hit"] = lines_hit
+            agg["uncovered_lines"] = [{"line": ln, "detail": "line"} for ln, st in sorted(statuses.items()) if st == "uncov"]
 
         print("=================================================================")
         print("RTL line/branch coverage (instrumentado + VCD)")
@@ -554,13 +819,19 @@ def main(argv: list[str]) -> int:
                 continue
             print(f"- {Path(file_path).name}")
             for item in uls[: args.top_uncovered]:
-                print(f"  line {item['line']}: {item['detail']}")
+                print(f"  line {item['line']}")
             for item in ubs[: args.top_uncovered]:
                 print(f"  branch line {item['line']}: {item['detail']}")
 
         if args.json:
             out_json = (repo_root / args.json).resolve()
             out_json.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        if args.html:
+            out_html = (repo_root / args.html).resolve()
+            out_html.write_text(
+                render_html_report(repo_root=repo_root, rtl_files=rtl_files, file_summaries=files, line_cov=line_cov),
+                encoding="utf-8",
+            )
         return 0
 
     if args.work:

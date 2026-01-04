@@ -1,1 +1,6 @@
 /rtl_backup
+/__pycache__
+/cov_work
+*.html
+*.vcd
+*.vvp
